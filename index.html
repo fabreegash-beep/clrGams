@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>🎨 لعبة الألوان | العب مع أصدقائك</title>
+    <title>🎨 لعبة الألوان | اختر عدد الألوان</title>
     
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
@@ -26,7 +26,7 @@
         }
         
         .game-container {
-            max-width: 1100px;
+            max-width: 1200px;
             width: 100%;
             background: white;
             border-radius: 40px;
@@ -39,6 +39,17 @@
             font-size: 2rem;
             color: #667eea;
             margin-bottom: 20px;
+        }
+        
+        .game-layout {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .game-main {
+            flex: 1;
+            min-width: 280px;
         }
         
         .room-section {
@@ -93,6 +104,8 @@
         .btn-orange { background: #ff9800; }
         .btn-orange:hover { background: #f57c00; }
         .btn-purple { background: #9c27b0; }
+        .btn-gray { background: #6c757d; }
+        .btn-gray:hover { background: #5a6268; }
         
         .players {
             display: flex;
@@ -107,11 +120,13 @@
             border-radius: 25px;
             text-align: center;
             border: 2px solid #e0e0e0;
+            transition: all 0.3s;
         }
         
         .player-card.active {
             background: #fff3e0;
             border-color: #ff9800;
+            box-shadow: 0 0 15px rgba(255,152,0,0.3);
         }
         
         .player-card.winner {
@@ -144,13 +159,89 @@
             width: 55px;
             height: 55px;
             border-radius: 15px;
-            border: 2px solid white;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             transition: all 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1.4rem;
+        }
+        
+        .color-dot.revealed {
+            animation: revealPop 0.5s ease;
+            border-color: #ff9800;
+        }
+        
+        @keyframes revealPop {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        
+        .progress-bars-container {
+            margin: 15px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .progress-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #e9ecef;
+            border-radius: 20px;
+            padding: 4px 8px;
+        }
+        
+        .progress-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .progress-bar-small {
+            flex: 1;
+            height: 12px;
+            background: #ddd;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        
+        .progress-fill-small {
+            height: 100%;
+            background: linear-gradient(90deg, #ff9800, #f57c00);
+            border-radius: 20px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+        
+        .progress-label {
+            font-size: 0.75rem;
+            font-weight: bold;
+            color: #666;
+            min-width: 35px;
+            text-align: center;
+        }
+        
+        .progress-completed {
+            background: #4caf50;
+            background: linear-gradient(90deg, #4caf50, #66bb6a);
+        }
+        
+        .progress-text {
+            font-size: 0.7rem;
+            color: #ff9800;
+            font-weight: bold;
+            margin-top: 5px;
+            text-align: center;
         }
         
         .palette {
@@ -169,12 +260,13 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1.4rem;
         }
         
         .color-option:hover:not(.disabled) {
             transform: scale(1.05);
             border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
         
         .guess-slots {
@@ -196,12 +288,14 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1.4rem;
+            transition: all 0.2s;
         }
         
         .guess-slot.selected {
             border-color: #ff9800;
             background: #fff0e0;
+            transform: scale(1.02);
         }
         
         .slot-number {
@@ -216,61 +310,8 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 12px;
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 10px;
-            margin-top: 10px;
-            overflow: hidden;
-        }
-        
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #ff9800, #f57c00);
-            transition: width 0.3s ease;
-        }
-        
-        .chat-area {
-            background: #f0f0f0;
-            border-radius: 25px;
-            padding: 20px;
-            height: 300px;
-            overflow-y: auto;
-            margin: 15px 0;
-        }
-        
-        .message {
-            margin: 8px 0;
-            padding: 8px 15px;
-            border-radius: 20px;
-            max-width: 80%;
-            word-wrap: break-word;
-        }
-        
-        .message.my-message {
-            background: #667eea;
-            color: white;
-            margin-left: auto;
-            text-align: right;
-        }
-        
-        .message.opponent-message {
-            background: white;
-            color: #333;
-            margin-right: auto;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-        }
-        
-        .message.system-message {
-            background: #ff9800;
-            color: white;
-            text-align: center;
-            margin: 8px auto;
-            max-width: 90%;
+            font-size: 11px;
+            font-weight: bold;
         }
         
         .feedback {
@@ -280,6 +321,7 @@
             border-radius: 25px;
             text-align: center;
             margin-top: 15px;
+            font-weight: bold;
         }
         
         .waiting {
@@ -312,6 +354,7 @@
             border-radius: 20px;
             font-size: 11px;
             margin-top: 8px;
+            font-weight: bold;
         }
         
         .main-buttons {
@@ -338,6 +381,12 @@
             justify-content: center;
             align-items: center;
             z-index: 10000;
+            animation: fadeIn 0.2s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
         
         .punishment-content {
@@ -357,10 +406,101 @@
             margin: 15px 0;
         }
         
-        @media (max-width: 700px) {
+        .guess-history {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+        
+        .guess-history-item {
+            padding: 5px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .celebration-emoji {
+            position: fixed;
+            font-size: 3rem;
+            pointer-events: none;
+            z-index: 1000;
+            animation: floatUp 1s ease-out forwards;
+        }
+        
+        @keyframes floatUp {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(0.5);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-100px) scale(1.5);
+            }
+        }
+        
+        .color-selector {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .color-option-btn {
+            background: #e0e0e0;
+            color: #333;
+            padding: 12px 25px;
+            border-radius: 30px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .color-option-btn.selected {
+            background: #ff9800;
+            color: white;
+            transform: scale(1.05);
+        }
+        
+        .history-toggle {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 10px;
+        }
+        
+        .history-toggle button {
+            font-size: 0.85rem;
+            padding: 6px 15px;
+        }
+        
+        .settings-panel {
+            background: #f0f0f0;
+            border-radius: 20px;
+            padding: 15px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .settings-panel h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .toggle-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: white;
+            padding: 8px 20px;
+            border-radius: 40px;
+            cursor: pointer;
+        }
+        
+        @media (max-width: 900px) {
+            .game-layout { flex-direction: column; }
             .players { flex-direction: column; }
             .guess-slot { width: 70px; height: 70px; }
             .palette { grid-template-columns: repeat(3, 1fr); }
+            .color-dot { width: 45px; height: 45px; font-size: 1.2rem; }
         }
     </style>
 </head>
@@ -385,7 +525,56 @@
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
         
-        // ==================== قائمة الأحكام ====================
+        let selectedColorsCount = 3;
+        let showHistoryForPlayer = { host: true, guest: true }; // المضيف هو المتحكم
+        
+        // التأثيرات الصوتية
+        function playSound(type) {
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                if (type === 'success') {
+                    oscillator.frequency.value = 880;
+                    gainNode.gain.value = 0.3;
+                    oscillator.type = 'sine';
+                    oscillator.start();
+                    gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContext.currentTime + 0.5);
+                    oscillator.stop(audioContext.currentTime + 0.5);
+                } else if (type === 'win') {
+                    oscillator.frequency.value = 523.25;
+                    oscillator.type = 'sine';
+                    gainNode.gain.value = 0.4;
+                    oscillator.start();
+                    setTimeout(() => {
+                        oscillator.frequency.value = 659.25;
+                    }, 100);
+                    setTimeout(() => {
+                        oscillator.frequency.value = 783.99;
+                    }, 200);
+                    gainNode.gain.exponentialRampToValueAtTime(0.00001, audioContext.currentTime + 0.8);
+                    oscillator.stop(audioContext.currentTime + 0.8);
+                }
+            } catch(e) {
+                console.log("صوت غير مدعوم");
+            }
+        }
+        
+        function showCelebrationEmoji() {
+            const emojis = ['🎉', '🎊', '✨', '⭐', '🌟', '💫', '🎈', '🥳', '😍', '🤩', '😎', '🏆'];
+            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+            const emojiDiv = document.createElement('div');
+            emojiDiv.className = 'celebration-emoji';
+            emojiDiv.textContent = randomEmoji;
+            emojiDiv.style.left = Math.random() * window.innerWidth + 'px';
+            emojiDiv.style.top = Math.random() * window.innerHeight * 0.5 + 'px';
+            document.body.appendChild(emojiDiv);
+            setTimeout(() => emojiDiv.remove(), 1000);
+        }
+        
         const PUNISHMENTS = [
             "🎭 أعطي صاحبك لقب مضحك لمدة دقيقة", "🎬 خلي صاحبك يقلد شخصية كرتونية", "📸 اطلب من صاحبك يرسل صورة وجه مضحك",
             "🤫 خلي صاحبك يخبرك بسر صغير", "📝 اجعل صاحبك يكتب كلمة صعبة بالعكس", "🎙️ خليه يقرأ جملة مضحكة بصوت مسموع",
@@ -397,15 +586,19 @@
         ];
         
         function getRandomPunishment() { return PUNISHMENTS[Math.floor(Math.random() * PUNISHMENTS.length)]; }
+        
         function showPunishment(punishment, isWinner) {
             const modal = document.createElement('div');
             modal.className = 'punishment-modal';
             modal.innerHTML = `<div class="punishment-content"><div style="font-size:2.5rem;">${isWinner ? '🏆🎲' : '😭⚠️'}</div><h3>${isWinner ? '🎲 اختر حكماً للخاسر 🎲' : '⚠️ الحكم المطلوب تنفيذه ⚠️'}</h3><div class="punishment-text">${punishment}</div><button onclick="this.closest('.punishment-modal').remove()" class="btn-green">${isWinner ? '📋 نسخ الحكم' : '✅ تم التنفيذ'}</button>${isWinner ? `<button onclick="changePunishment(this)" class="btn-orange">🎲 حكم آخر</button>` : ''}</div>`;
             document.body.appendChild(modal);
         }
-        function changePunishment(btn) { const modal = btn.closest('.punishment-modal'); modal.querySelector('.punishment-text').innerHTML = getRandomPunishment(); }
         
-        // ==================== الألوان (12 لوناً مع رموز) ====================
+        function changePunishment(btn) { 
+            const modal = btn.closest('.punishment-modal'); 
+            modal.querySelector('.punishment-text').innerHTML = getRandomPunishment(); 
+        }
+        
         const ALL_COLORS = [
             { name: "أحمر", code: "#FF0000", emoji: "🔴" },
             { name: "أزرق", code: "#0000FF", emoji: "🔵" },
@@ -425,23 +618,23 @@
         let currentPlayer = null;
         let roomListener = null;
         let selectedSlot = null;
-        let myGuess = [null, null, null];
+        let myGuess = [];
         
-        function getRandomColors() {
+        function getRandomColors(count) {
             let shuffled = [...ALL_COLORS];
             for (let i = shuffled.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
             }
-            return shuffled.slice(0, 3);
+            return shuffled.slice(0, count);
         }
         
         function showMessage(msg, isError = false) {
             const div = document.createElement('div');
             div.textContent = msg;
-            div.style.cssText = `position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: ${isError ? '#f44336' : '#48bb78'}; color: white; padding: 8px 20px; border-radius: 40px; z-index: 9999; font-weight: bold;`;
+            div.style.cssText = `position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: ${isError ? '#f44336' : '#48bb78'}; color: white; padding: 10px 24px; border-radius: 40px; z-index: 9999; font-weight: bold; box-shadow: 0 4px 12px rgba(0,0,0,0.2);`;
             document.body.appendChild(div);
-            setTimeout(() => div.remove(), 3000);
+            setTimeout(() => div.remove(), 3500);
         }
         
         function createRoom() {
@@ -449,14 +642,21 @@
             currentRoomId = roomId;
             currentPlayer = 'host';
             
+            const colorsCount = selectedColorsCount;
+            const hostColors = getRandomColors(colorsCount);
+            const guestColors = getRandomColors(colorsCount);
+            
             const roomData = {
-                host: { joined: true, secretColors: getRandomColors(), guess: [null, null, null], hasGuessed: false, revealedColors: [false, false, false], correctCount: 0 },
-                guest: { joined: false, secretColors: getRandomColors(), guess: [null, null, null], hasGuessed: false, revealedColors: [false, false, false], correctCount: 0 },
+                colorsCount: colorsCount,
+                host: { joined: true, secretColors: hostColors, guess: Array(colorsCount).fill(null), hasGuessed: false, revealedColors: Array(colorsCount).fill(false), correctCount: 0, guessHistory: [] },
+                guest: { joined: false, secretColors: guestColors, guess: Array(colorsCount).fill(null), hasGuessed: false, revealedColors: Array(colorsCount).fill(false), correctCount: 0, guessHistory: [] },
+                discoveredColors: [],
                 turn: 'host',
                 phase: 'waiting',
                 gameEnded: false,
                 winner: null,
-                feedback: { host: '', guest: '' }
+                feedback: { host: '', guest: '' },
+                settings: { showHistory: true } // المضيف يتحكم في إعدادات السجل
             };
             
             database.ref('rooms/' + roomId).set(roomData).then(() => { listenToRoom(roomId); showWaitingRoom(); });
@@ -470,7 +670,7 @@
                 if (!room) { showMessage("الغرفة غير موجودة!", true); return; }
                 if (room.guest.joined) { showMessage("الغرفة ممتلئة!", true); return; }
                 currentRoomId = roomId; currentPlayer = 'guest';
-                database.ref('rooms/' + roomId).update({ 'guest/joined': true, phase: 'playing', turn: 'host' }).then(() => { listenToRoom(roomId); showMessage("✅ تم الانضمام!"); });
+                database.ref('rooms/' + roomId).update({ 'guest/joined': true, phase: 'playing', turn: 'host' }).then(() => { listenToRoom(roomId); showMessage("✅ تم الانضمام! المضيف يبدأ أولاً"); });
             });
         }
         
@@ -485,11 +685,50 @@
         }
         
         function showWaitingRoom() {
-            document.getElementById('mainContent').innerHTML = `<div class="room-section"><div class="room-code">${currentRoomId}</div><button onclick="copyCode()" class="btn-green">📋 نسخ الرمز</button><div class="spinner"></div><button onclick="backToMenu()" class="btn-red">🚪 إلغاء</button></div>`;
+            document.getElementById('mainContent').innerHTML = `<div class="room-section"><div class="room-code">${currentRoomId}</div><button onclick="copyCode()" class="btn-green">📋 نسخ الرمز</button><div class="spinner"></div><p style="margin-top:15px;">⏳ انتظر حتى ينضم صديقك...</p><p style="margin-top:10px;">🎨 عدد الألوان: <strong>${selectedColorsCount}</strong></p><button onclick="backToMenu()" class="btn-red">🚪 إلغاء</button></div>`;
         }
         
         function copyCode() { navigator.clipboard.writeText(currentRoomId); showMessage("✅ تم نسخ الرمز: " + currentRoomId); }
-        function backToMenu() { if (roomListener) roomListener.off(); if (currentRoomId) database.ref('rooms/' + currentRoomId).remove(); currentRoomId = null; currentPlayer = null; showMainMenu(); }
+        
+        function backToMenu() { 
+            if (roomListener) roomListener.off(); 
+            if (currentRoomId) database.ref('rooms/' + currentRoomId).remove(); 
+            currentRoomId = null; currentPlayer = null; 
+            showMainMenu(); 
+        }
+        
+        function toggleHistorySetting(room) {
+            const newSetting = !room.settings?.showHistory;
+            database.ref('rooms/' + currentRoomId + '/settings').update({ showHistory: newSetting });
+            showMessage(newSetting ? "✅ تم تفعيل سجل التخمينات للجميع" : "🔒 تم إيقاف سجل التخمينات للجميع");
+        }
+        
+        function renderProgressBars(revealedColors, secretColors) {
+            if (!revealedColors || !secretColors) return '';
+            let html = `<div class="progress-bars-container">`;
+            for (let i = 0; i < revealedColors.length; i++) {
+                const isRevealed = revealedColors[i];
+                const color = secretColors[i];
+                const progressPercent = isRevealed ? 100 : 0;
+                const fillClass = isRevealed ? 'progress-completed' : '';
+                html += `
+                    <div class="progress-item">
+                        <div class="progress-icon" style="background: ${isRevealed ? color.code : '#ccc'};">
+                            ${isRevealed ? color.emoji : '?'}
+                        </div>
+                        <div class="progress-bar-small">
+                            <div class="progress-fill-small ${fillClass}" style="width: ${progressPercent}%;"></div>
+                        </div>
+                        <div class="progress-label">
+                            ${isRevealed ? '✓' : 'المركز ' + (i+1)}
+                        </div>
+                    </div>
+                `;
+            }
+            html += `<div class="progress-text">📊 ${revealedColors.filter(r => r === true).length}/${revealedColors.length} لون مكتشف</div>`;
+            html += `</div>`;
+            return html;
+        }
         
         function renderGame(room) {
             const isHost = currentPlayer === 'host';
@@ -497,28 +736,96 @@
             const oppData = isHost ? room.guest : room.host;
             const myTurn = (isHost && room.turn === 'host') || (!isHost && room.turn === 'guest');
             const canPlay = room.phase === 'playing' && myTurn && !room.gameEnded;
-            const oppRevealed = oppData.revealedColors || [false, false, false];
-            const oppProgress = ((oppData.correctCount || 0) / 3) * 100;
+            const oppRevealed = oppData.revealedColors || [];
+            const colorsCount = room.colorsCount;
+            const showHistoryGlobal = room.settings?.showHistory !== false; // افتراضي true
             
-            let html = `<div class="room-section"><div>🏠 رمز الغرفة: <strong class="room-code" style="font-size:1.2rem;">${currentRoomId}</strong></div><button onclick="copyCode()" class="btn-green">📋 نسخ</button><button onclick="backToMenu()" class="btn-red">🚪 مغادرة</button></div><div class="players"><div class="player-card ${room.turn === 'host' && room.phase === 'playing' && !room.gameEnded ? 'active' : ''} ${room.winner === 'host' ? 'winner' : ''}"><div class="player-name">${isHost ? '👤 أنت (المضيف)' : '👥 المضيف'}</div><div class="secret-colors">${myData.secretColors.map(c => `<div class="color-dot" style="background:${c.code}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">${c.emoji}</div>`).join('')}</div><div>🎯 ألوانك السرية</div>${room.turn === 'host' && room.phase === 'playing' && !room.gameEnded ? '<div class="turn-badge">✨ دورك ✨</div>' : ''}</div><div class="player-card ${room.turn === 'guest' && room.phase === 'playing' && !room.gameEnded ? 'active' : ''} ${room.winner === 'guest' ? 'winner' : ''}"><div class="player-name">${!isHost ? '👤 أنت (الضيف)' : '👥 الضيف'}</div><div class="secret-colors">${oppData.secretColors.map((c, i) => `<div class="color-dot" style="background:${oppRevealed[i] ? c.code : '#ccc'}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">${oppRevealed[i] ? c.emoji : '?'}</div>`).join('')}</div><div>❓ ألوان الخصم</div><div class="progress-bar"><div class="progress-fill" style="width:${oppProgress}%;"></div></div><div>✓ ${oppData.correctCount || 0}/3</div>${room.turn === 'guest' && room.phase === 'playing' && !room.gameEnded ? '<div class="turn-badge">✨ دورك ✨</div>' : ''}</div></div>`;
+            if (!myGuess || myGuess.length !== colorsCount) {
+                myGuess = Array(colorsCount).fill(null);
+            }
             
-            if (room.phase === 'waiting') html += `<div class="waiting"><div class="spinner"></div><h3>⏳ في انتظار بدء اللعبة...</h3></div>`;
-            else if (room.phase === 'playing' && !room.gameEnded) {
+            let html = `<div class="game-layout"><div class="game-main">`;
+            html += `<div class="room-section"><div>🏠 رمز الغرفة: <strong style="background:#667eea; color:white; padding:5px 15px; border-radius:30px; font-family:monospace;">${currentRoomId}</strong></div><button onclick="copyCode()" class="btn-green">📋 نسخ</button><button onclick="backToMenu()" class="btn-red">🚪 مغادرة</button><div style="margin-top:10px;">🎨 عدد الألوان: <strong style="color:#ff9800;">${colorsCount}</strong></div>`;
+            
+            // لوحة إعدادات المضيف (تظهر فقط للمضيف)
+            if (isHost && room.phase !== 'finished') {
+                const historyStatus = room.settings?.showHistory !== false;
+                html += `<div class="settings-panel"><h4>⚙️ إعدادات الغرفة (المضيف فقط)</h4>`;
+                html += `<div class="toggle-switch" onclick="toggleHistorySettingFromGame()">`;
+                html += `<span>📋 سجل التخمينات:</span>`;
+                html += `<button class="${historyStatus ? 'btn-green' : 'btn-gray'}" style="margin:0; padding:5px 15px;">${historyStatus ? '🟢 مفعل' : '🔴 معطل'}</button>`;
+                html += `</div></div>`;
+            } else if (!isHost && room.phase !== 'finished') {
+                const historyStatus = room.settings?.showHistory !== false;
+                html += `<div class="settings-panel"><h4>⚙️ إعدادات الغرفة</h4>`;
+                html += `<div style="background:white; border-radius:30px; padding:8px; display:inline-block;">`;
+                html += `<span>📋 سجل التخمينات: <strong style="color:${historyStatus ? '#48bb78' : '#f56565'};">${historyStatus ? 'مفعل' : 'معطل'}</strong></span>`;
+                html += `<div style="font-size:12px; color:#666; margin-top:5px;">🔒 المضيف هو من يتحكم</div>`;
+                html += `</div></div>`;
+            }
+            
+            html += `</div><div class="players"><div class="player-card ${room.turn === 'host' && room.phase === 'playing' && !room.gameEnded ? 'active' : ''} ${room.winner === 'host' ? 'winner' : ''}"><div class="player-name">${isHost ? '👤  (المضيف)' : '👥 المضيف'}</div><div class="secret-colors">${myData.secretColors.map((c, idx) => `<div class="color-dot" style="background:${c.code}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">${c.emoji}</div>`).join('')}</div><div>🎯 ألوانك السرية</div>${renderProgressBars(myData.revealedColors || [], myData.secretColors)}${room.turn === 'host' && room.phase === 'playing' && !room.gameEnded ? '<div class="turn-badge">✨ دورك الآن ✨</div>' : ''}</div><div class="player-card ${room.turn === 'guest' && room.phase === 'playing' && !room.gameEnded ? 'active' : ''} ${room.winner === 'guest' ? 'winner' : ''}"><div class="player-name">${!isHost ? '👤  (الضيف)' : '👥 الضيف'}</div><div class="secret-colors">${oppData.secretColors.map((c, i) => `<div class="color-dot ${oppRevealed[i] ? 'revealed' : ''}" style="background:${oppRevealed[i] ? c.code : '#ccc'}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">${oppRevealed[i] ? c.emoji : '?'}</div>`).join('')}</div><div>❓ ألوان الخصم</div>${renderProgressBars(oppRevealed, oppData.secretColors)}${room.turn === 'guest' && room.phase === 'playing' && !room.gameEnded ? '<div class="turn-badge">✨ دورك الآن ✨</div>' : ''}</div></div>`;
+            
+            if (room.phase === 'waiting') {
+                html += `<div class="waiting"><div class="spinner"></div><h3>⏳ في انتظار انضمام الخصم...</h3></div>`;
+            } else if (room.phase === 'playing' && !room.gameEnded) {
                 const palette = ALL_COLORS.map(c => `<div class="color-option ${!canPlay ? 'disabled' : ''}" style="background:${c.code}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;" data-color='${JSON.stringify(c)}'>${c.emoji}</div>`).join('');
                 const slots = myGuess.map((c, i) => `<div class="guess-slot ${!canPlay ? 'disabled' : ''} ${selectedSlot === i ? 'selected' : ''}" style="background:${c ? c.code : '#e0e0e0'}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;" data-slot="${i}">${c ? c.emoji : '?'}<div class="slot-number">${i+1}</div></div>`).join('');
                 html += `<div class="guess-slots" id="guessSlots">${slots}</div><div class="palette" id="palette">${palette}</div><button id="submitBtn" class="btn-orange" ${!canPlay ? 'disabled' : ''}>${canPlay ? '🎨 تقديم التخمين' : '⏳ انتظر دورك'}</button>`;
+                
+                // عرض السجل فقط إذا كان المضيف مفعله
+                if (showHistoryGlobal) {
+                    const history = myData.guessHistory || [];
+                    if (history.length > 0) {
+                        html += `<div class="guess-history"><strong>📜 سجل تخميناتك السابقة:</strong><br>`;
+                        history.forEach(h => {
+                            html += `<div class="guess-history-item">${h.text}</div>`;
+                        });
+                        html += `</div>`;
+                    }
+                } else {
+                    html += `<div class="guess-history" style="background:#ffe0e0; text-align:center;"><strong>🔒 سجل التخمينات معطل من قبل المضيف</strong></div>`;
+                }
+                
                 setTimeout(() => {
                     if (canPlay) {
-                        document.querySelectorAll('#guessSlots .guess-slot').forEach(slot => { slot.onclick = () => { selectedSlot = parseInt(slot.dataset.slot); document.querySelectorAll('#guessSlots .guess-slot').forEach(s => s.classList.remove('selected')); slot.classList.add('selected'); }; });
-                        document.querySelectorAll('#palette .color-option').forEach(opt => { opt.onclick = () => { if (selectedSlot === null) { showMessage("اضغط على خانة أولاً", true); return; } myGuess[selectedSlot] = JSON.parse(opt.dataset.color); selectedSlot = null; renderGame(room); }; });
+                        document.querySelectorAll('#guessSlots .guess-slot').forEach(slot => { 
+                            slot.onclick = () => { 
+                                selectedSlot = parseInt(slot.dataset.slot); 
+                                document.querySelectorAll('#guessSlots .guess-slot').forEach(s => s.classList.remove('selected')); 
+                                slot.classList.add('selected'); 
+                            }; 
+                        });
+                        document.querySelectorAll('#palette .color-option').forEach(opt => { 
+                            opt.onclick = () => { 
+                                if (selectedSlot === null) { 
+                                    showMessage("⚠️ اضغط على خانة التخمين أولاً", true); 
+                                    return; 
+                                } 
+                                myGuess[selectedSlot] = JSON.parse(opt.dataset.color); 
+                                selectedSlot = null; 
+                                renderGame(room); 
+                            }; 
+                        });
                         document.getElementById('submitBtn').onclick = () => submitGuess(room);
                     }
                 }, 100);
             } else if (room.phase === 'finished') {
                 const p = getRandomPunishment();
-                html += `<div class="waiting"><h2>${room.winner === currentPlayer ? '🎉 فزت! 🎉' : '😔 خسرت!'}</h2><div class="feedback">${room.feedback[currentPlayer] || ''}</div><button onclick="showPunishment('${p}', ${room.winner === currentPlayer})" class="btn-purple">${room.winner === currentPlayer ? '🎲 اختيار حكم' : '😭 عرض الحكم'}</button><button onclick="newRound()" class="btn-orange">🎲 جولة جديدة</button></div>`;
+                const feedbackMsg = room.feedback[currentPlayer] || '';
+                html += `<div class="waiting"><h2>${room.winner === currentPlayer ? '🎉 لقد فزت! 🎉' : '😔 للأسف خسرت!'}</h2><div class="feedback">${feedbackMsg}</div><button onclick="showPunishment('${p}', ${room.winner === currentPlayer})" class="btn-purple">${room.winner === currentPlayer ? '🎲 اختر حكماً للخاسر' : '😭 عرض الحكم'}</button><button onclick="newRound()" class="btn-orange">🔄 جولة جديدة</button></div>`;
             }
+            
+            html += `</div></div>`;
             document.getElementById('mainContent').innerHTML = html;
+        }
+        
+        function toggleHistorySettingFromGame() {
+            database.ref('rooms/' + currentRoomId + '/settings').once('value').then(snapshot => {
+                const current = snapshot.val()?.showHistory !== false;
+                database.ref('rooms/' + currentRoomId + '/settings').update({ showHistory: !current });
+                showMessage(!current ? "✅ تم تفعيل سجل التخمينات للجميع" : "🔒 تم إيقاف سجل التخمينات للجميع");
+            });
         }
         
         function submitGuess(room) {
@@ -526,52 +833,150 @@
             if (room.phase !== 'playing' || room.gameEnded) return;
             const myTurn = (isHost && room.turn === 'host') || (!isHost && room.turn === 'guest');
             if (!myTurn) return;
-            if (myGuess.includes(null)) { showMessage("اختر 3 ألوان كاملة!", true); return; }
+            if (myGuess.includes(null)) { 
+                showMessage("⚠️ اختر جميع الألوان!", true); 
+                return; 
+            }
+            
             const opponentData = isHost ? room.guest : room.host;
-            const currentRevealed = [...(opponentData.revealedColors || [false, false, false])];
-            let newCorrectCount = opponentData.correctCount || 0, newlyRevealed = [];
-            for (let i = 0; i < 3; i++) { if (myGuess[i].code === opponentData.secretColors[i].code && !currentRevealed[i]) { currentRevealed[i] = true; newCorrectCount++; newlyRevealed.push(i + 1); } }
-            const isWinner = newCorrectCount === 3;
-            let feedbackMsg = isWinner ? "🎉 مبروك! وجدت كل الألوان!" : (newlyRevealed.length > 0 ? `✅ وجدت ${newlyRevealed.length} لون صحيح في المراكز: ${newlyRevealed.join('، ')}!` : "❌ لا توجد ألوان صحيحة!");
+            const currentRevealed = [...(opponentData.revealedColors || [])];
+            let newCorrectCount = opponentData.correctCount || 0;
+            let newlyRevealed = [];
+            let newlyRevealedNames = [];
+            let newlyDiscoveredColors = [...(room.discoveredColors || [])];
+            
+            for (let i = 0; i < room.colorsCount; i++) { 
+                if (myGuess[i].code === opponentData.secretColors[i].code && !currentRevealed[i]) { 
+                    currentRevealed[i] = true; 
+                    newCorrectCount++; 
+                    newlyRevealed.push(i + 1);
+                    newlyRevealedNames.push(`${myGuess[i].emoji} ${myGuess[i].name}`);
+                    
+                    newlyDiscoveredColors.push({
+                        colorName: myGuess[i].name,
+                        colorCode: myGuess[i].code,
+                        emoji: myGuess[i].emoji,
+                        position: i + 1,
+                        discoveredBy: currentPlayer,
+                        discoveredAt: Date.now()
+                    });
+                    
+                    playSound('success');
+                    for(let s = 0; s < 3; s++) {
+                        setTimeout(() => showCelebrationEmoji(), s * 100);
+                    }
+                } 
+            }
+            
+            const isWinner = newCorrectCount === room.colorsCount;
+            
+            let feedbackMsg = "";
+            if (isWinner) {
+                feedbackMsg = "🎉🎉 مبروك! 🎉🎉\nلقد وجدت جميع الألوان الصحيحة!";
+                playSound('win');
+                for(let s = 0; s < 5; s++) {
+                    setTimeout(() => showCelebrationEmoji(), s * 150);
+                }
+            } else if (newlyRevealed.length > 0) {
+                feedbackMsg = `✅✅ رائع! لقد اكتشفت ${newlyRevealed.length} لون صحيح في المراكز (${newlyRevealed.join('، ')}): ${newlyRevealedNames.join('، ')}`;
+                showMessage(`🎉 ${feedbackMsg} 🎉`, false);
+            } else {
+                feedbackMsg = "❌ للأسف، لا توجد ألوان صحيحة في تخمينك. حاول مرة أخرى!";
+            }
+            
+            const guessText = `🎨 تخمين: ${myGuess.map(c => `${c.emoji}${c.name}`).join(' - ')} → ${newlyRevealed.length > 0 ? `✅ اكتشف ${newlyRevealed.length} لون: ${newlyRevealedNames.join('، ')}` : '❌ لا شيء'}`;
+            const currentHistory = [...(isHost ? room.host.guessHistory || [] : room.guest.guessHistory || [])];
+            currentHistory.push({ text: guessText, time: Date.now() });
+            if (currentHistory.length > 5) currentHistory.shift();
+            
             const updates = {};
             updates[`${isHost ? 'host' : 'guest'}/guess`] = [...myGuess];
             updates[`${isHost ? 'host' : 'guest'}/hasGuessed`] = true;
+            updates[`${isHost ? 'host' : 'guest'}/guessHistory`] = currentHistory;
             updates[`feedback/${isHost ? 'host' : 'guest'}`] = feedbackMsg;
             updates[`${isHost ? 'guest' : 'host'}/revealedColors`] = currentRevealed;
             updates[`${isHost ? 'guest' : 'host'}/correctCount`] = newCorrectCount;
-            if (isWinner) { updates['winner'] = currentPlayer; updates['gameEnded'] = true; updates['phase'] = 'finished'; showMessage("🎉 فزت! 🎉"); }
-            else { updates['turn'] = isHost ? 'guest' : 'host'; updates[`${isHost ? 'guest' : 'host'}/hasGuessed`] = false; }
+            updates['discoveredColors'] = newlyDiscoveredColors;
+            
+            if (isWinner) { 
+                updates['winner'] = currentPlayer; 
+                updates['gameEnded'] = true; 
+                updates['phase'] = 'finished'; 
+                showMessage("🎉🎉 مبروك! لقد فزت باللعبة! 🎉🎉"); 
+            } else { 
+                updates['turn'] = isHost ? 'guest' : 'host'; 
+                updates[`${isHost ? 'guest' : 'host'}/hasGuessed`] = false;
+            }
+            
             database.ref('rooms/' + currentRoomId).update(updates);
-            myGuess = [null, null, null]; selectedSlot = null;
+            myGuess = Array(room.colorsCount).fill(null);
+            selectedSlot = null;
         }
         
         function newRound() {
-            database.ref('rooms/' + currentRoomId).update({
-                'host/secretColors': getRandomColors(), 'guest/secretColors': getRandomColors(),
-                'host/guess': [null,null,null], 'guest/guess': [null,null,null],
-                'host/hasGuessed': false, 'guest/hasGuessed': false,
-                'host/revealedColors': [false,false,false], 'guest/revealedColors': [false,false,false],
-                'host/correctCount': 0, 'guest/correctCount': 0,
-                turn: 'host', phase: 'playing', winner: null, gameEnded: false, feedback: { host: '', guest: '' }
+            database.ref('rooms/' + currentRoomId).once('value').then(snapshot => {
+                const room = snapshot.val();
+                const colorsCount = room.colorsCount;
+                database.ref('rooms/' + currentRoomId).update({
+                    'host/secretColors': getRandomColors(colorsCount), 
+                    'guest/secretColors': getRandomColors(colorsCount),
+                    'host/guess': Array(colorsCount).fill(null), 
+                    'guest/guess': Array(colorsCount).fill(null),
+                    'host/hasGuessed': false, 
+                    'guest/hasGuessed': false,
+                    'host/revealedColors': Array(colorsCount).fill(false), 
+                    'guest/revealedColors': Array(colorsCount).fill(false),
+                    'host/correctCount': 0, 
+                    'guest/correctCount': 0,
+                    'host/guessHistory': [],
+                    'guest/guessHistory': [],
+                    'discoveredColors': [],
+                    turn: 'host', 
+                    phase: 'playing', 
+                    winner: null, 
+                    gameEnded: false, 
+                    feedback: { host: '', guest: '' }
+                });
+                myGuess = Array(colorsCount).fill(null);
+                selectedSlot = null;
+                showMessage("🔄 جولة جديدة! المضيف يبدأ أولاً");
             });
-            myGuess = [null, null, null]; selectedSlot = null;
         }
         
         function showMainMenu() {
             document.getElementById('mainContent').innerHTML = `
                 <div class="main-buttons">
+                    <div class="room-section">
+                        <h3>🎨 اختر عدد الألوان للعبة:</h3>
+                        <div class="color-selector">
+                            <div class="color-option-btn ${selectedColorsCount === 3 ? 'selected' : ''}" data-count="3">3 ألوان</div>
+                            <div class="color-option-btn ${selectedColorsCount === 4 ? 'selected' : ''}" data-count="4">4 ألوان</div>
+                            <div class="color-option-btn ${selectedColorsCount === 5 ? 'selected' : ''}" data-count="5">5 ألوان</div>
+                        </div>
+                    </div>
                     <button onclick="createRoom()" class="main-btn" style="background:#667eea;">✨ إنشاء غرفة جديدة ✨</button>
                     <button onclick="joinRoom()" class="main-btn" style="background:#48bb78;">🔑 انضمام إلى غرفة 🔑</button>
                 </div>
                 <div class="room-section">
                     <h3>📖 طريقة اللعب:</h3>
-                    <p>1️⃣ كل لاعب يحصل على <strong>3 ألوان سرية</strong> من 12 لوناً</p>
-                    <p>2️⃣ <strong style="color:#ff9800;">المضيف يبدأ أولاً</strong> بتخمين ألوان الضيف</p>
-                    <p>3️⃣ عند التخمين الصحيح، يظهر اللون للخصم فوراً</p>
-                    <p>4️⃣ من يجد الـ 3 ألوان الصحيحة يفوز!</p>
-                    <p>5️⃣ <strong style="color:#9c27b0;">عند الفوز، اختر حكماً للخاسر!</strong></p>
+                    <p>1️⃣ <strong>منشئ الغرفة يختار عدد الألوان</strong> (3-5 ألوان من 12 لوناً)</p>
+                    <p>2️⃣ كل لاعب يحصل على <strong>ألوان سرية</strong> حسب العدد المختار</p>
+                    <p>3️⃣ <strong style="color:#ff9800;">المضيف يبدأ أولاً</strong> بتخمين ألوان الضيف</p>
+                    <p>4️⃣ <strong style="color:#4caf50;">عند التخمين الصحيح: 🎵 صوت + 😍 إيموجي فرحان + يظهر اللون للجميع!</strong></p>
+                    <p>5️⃣ من يجد جميع الألوان الصحيحة يفوز!</p>
+                    <p>6️⃣ <strong style="color:#9c27b0;">عند الفوز، اختر حكماً للخاسر!</strong></p>
+                    <p>7️⃣ <strong style="color:#667eea;">المضيف يتحكم في إظهار أو إخفاء سجل التخمينات للجميع</strong></p>
+                    <p>📊 <strong>شريط التقدم المقسم:</strong> يظهر تقدم اكتشاف كل لون على حدة</p>
                 </div>
             `;
+            
+            document.querySelectorAll('.color-option-btn').forEach(btn => {
+                btn.onclick = () => {
+                    document.querySelectorAll('.color-option-btn').forEach(b => b.classList.remove('selected'));
+                    btn.classList.add('selected');
+                    selectedColorsCount = parseInt(btn.dataset.count);
+                };
+            });
         }
         
         showMainMenu();
