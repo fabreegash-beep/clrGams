@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🎨 لعبة الألوان | العب مع أصدقائك</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .game-container {
+            max-width: 1100px;
+            width: 100%;
+            background: white;
+            border-radius: 40px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            text-align: center;
+            font-size: 2rem;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        
+        .room-section {
+            background: #f8f9fa;
+            border-radius: 30px;
+            padding: 20px;
+            margin-bottom: 20px;
+            text-align: center;
+            border: 1px solid #e0e0e0;
+        }
+        
+        .room-code {
+            font-size: 1.8rem;
+            font-family: monospace;
+            letter-spacing: 5px;
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 50px;
+            display: inline-block;
+            margin: 10px 0;
+            font-weight: bold;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 22px;
+            border-radius: 50px;
+            font-size: 0.95rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.2s;
+        }
+        
+        button:hover:not(:disabled) {
+            background: #5a67d8;
+            transform: translateY(-1px);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-green { background: #48bb78; }
+        .btn-green:hover { background: #38a169; }
+        .btn-red { background: #f56565; }
+        .btn-red:hover { background: #e53e3e; }
+        .btn-orange { background: #ff9800; }
+        .btn-orange:hover { background: #f57c00; }
+        .btn-purple { background: #9c27b0; }
+        
+        .players {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .player-card {
+            flex: 1;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 25px;
+            text-align: center;
+            border: 2px solid #e0e0e0;
+        }
+        
+        .player-card.active {
+            background: #fff3e0;
+            border-color: #ff9800;
+        }
+        
+        .player-card.winner {
+            background: #c8e6c9;
+            border-color: #4caf50;
+            animation: winnerPulse 0.5s ease 3;
+        }
+        
+        @keyframes winnerPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        
+        .player-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .secret-colors {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        
+        .color-dot {
+            width: 55px;
+            height: 55px;
+            border-radius: 15px;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        
+        .palette {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
+            margin: 20px 0;
+        }
+        
+        .color-option {
+            aspect-ratio: 1;
+            border-radius: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        
+        .color-option:hover:not(.disabled) {
+            transform: scale(1.05);
+            border-color: #667eea;
+        }
+        
+        .guess-slots {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin: 25px 0;
+            flex-wrap: wrap;
+        }
+        
+        .guess-slot {
+            width: 85px;
+            height: 85px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            border: 2px dashed #667eea;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        
+        .guess-slot.selected {
+            border-color: #ff9800;
+            background: #fff0e0;
+        }
+        
+        .slot-number {
+            position: absolute;
+            bottom: 5px;
+            right: 8px;
+            background: rgba(0,0,0,0.6);
+            color: white;
+            border-radius: 50%;
+            width: 26px;
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff9800, #f57c00);
+            transition: width 0.3s ease;
+        }
+        
+        .chat-area {
+            background: #f0f0f0;
+            border-radius: 25px;
+            padding: 20px;
+            height: 300px;
+            overflow-y: auto;
+            margin: 15px 0;
+        }
+        
+        .message {
+            margin: 8px 0;
+            padding: 8px 15px;
+            border-radius: 20px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        
+        .message.my-message {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        
+        .message.opponent-message {
+            background: white;
+            color: #333;
+            margin-right: auto;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .message.system-message {
+            background: #ff9800;
+            color: white;
+            text-align: center;
+            margin: 8px auto;
+            max-width: 90%;
+        }
+        
+        .feedback {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            border-radius: 25px;
+            text-align: center;
+            margin-top: 15px;
+        }
+        
+        .waiting {
+            text-align: center;
+            padding: 40px;
+            background: #f8f9fa;
+            border-radius: 25px;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 15px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .turn-badge {
+            display: inline-block;
+            background: #ff9800;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            margin-top: 8px;
+        }
+        
+        .main-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin: 30px 0;
+        }
+        
+        .main-btn {
+            font-size: 1.2rem;
+            padding: 15px 30px;
+            width: 100%;
+        }
+        
+        .punishment-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+        }
+        
+        .punishment-content {
+            background: white;
+            border-radius: 40px;
+            padding: 30px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+        
+        .punishment-text {
+            font-size: 1.1rem;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 20px;
+            margin: 15px 0;
+        }
+        
+        @media (max-width: 700px) {
+            .players { flex-direction: column; }
+            .guess-slot { width: 70px; height: 70px; }
+            .palette { grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container" id="app">
+        <h1>🎨 لعبة الألوان 🎨</h1>
+        <div id="mainContent"></div>
+    </div>
+
+    <script>
+        // Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyBjHyON3NjKz2yBxCqwgLftd2trh03HYQc",
+            authDomain: "arabic-game-onlin.firebaseapp.com",
+            databaseURL: "https://arabic-game-onlin-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "arabic-game-onlin",
+            storageBucket: "arabic-game-onlin.firebasestorage.app",
+            messagingSenderId: "406939044821",
+            appId: "1:406939044821:web:3fe9a371862a4ca23f8b5c"
+        };
+        
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        
+        // ==================== قائمة الأحكام ====================
+        const PUNISHMENTS = [
+            "🎭 أعطي صاحبك لقب مضحك لمدة دقيقة", "🎬 خلي صاحبك يقلد شخصية كرتونية", "📸 اطلب من صاحبك يرسل صورة وجه مضحك",
+            "🤫 خلي صاحبك يخبرك بسر صغير", "📝 اجعل صاحبك يكتب كلمة صعبة بالعكس", "🎙️ خليه يقرأ جملة مضحكة بصوت مسموع",
+            "😂 خليه يخبر الجميع بأغرب موقف صار له", "🍕 قل له يصف أكلة بدون ما يقول اسمها", "🏷️ خليه يخترع لقب غريب لنفسه",
+            "🎤 خليه يغني مقطع من أغنية بطريقة غريبة", "🔄 خليه يلف حول نفسه ثلاث مرات", "🎭 اطلب منه يصف شيء بطريقة تمثيلية",
+            "😝 خليه يقلد أحد الموجودين", "🎭 اجعله يقول 'أنا الخاسر' بأسلوب مضحك", "📖 خليه يروي موقف محرج",
+            "🔤 اطلب منه يكتب اسم شيء بالعكس", "⭐ خليه يقلد شخصية مشهورة", "🤪 اجعله يصنع وجهاً غريباً",
+            "🥤 أخبرنا بأسوأ مشروب جربته", "🦩 قف على رجل واحدة 10 ثواني", "🚗 قلد أصوات السيارات"
+        ];
+        
+        function getRandomPunishment() { return PUNISHMENTS[Math.floor(Math.random() * PUNISHMENTS.length)]; }
+        function showPunishment(punishment, isWinner) {
+            const modal = document.createElement('div');
+            modal.className = 'punishment-modal';
+            modal.innerHTML = `<div class="punishment-content"><div style="font-size:2.5rem;">${isWinner ? '🏆🎲' : '😭⚠️'}</div><h3>${isWinner ? '🎲 اختر حكماً للخاسر 🎲' : '⚠️ الحكم المطلوب تنفيذه ⚠️'}</h3><div class="punishment-text">${punishment}</div><button onclick="this.closest('.punishment-modal').remove()" class="btn-green">${isWinner ? '📋 نسخ الحكم' : '✅ تم التنفيذ'}</button>${isWinner ? `<button onclick="changePunishment(this)" class="btn-orange">🎲 حكم آخر</button>` : ''}</div>`;
+            document.body.appendChild(modal);
+        }
+        function changePunishment(btn) { const modal = btn.closest('.punishment-modal'); modal.querySelector('.punishment-text').innerHTML = getRandomPunishment(); }
+        
+        // ==================== الألوان (12 لوناً مع رموز) ====================
+        const ALL_COLORS = [
+            { name: "أحمر", code: "#FF0000", emoji: "🔴" },
+            { name: "أزرق", code: "#0000FF", emoji: "🔵" },
+            { name: "أخضر", code: "#00FF00", emoji: "🟢" },
+            { name: "أصفر", code: "#FFFF00", emoji: "🟡" },
+            { name: "أسود", code: "#000000", emoji: "⚫" },
+            { name: "أبيض", code: "#FFFFFF", emoji: "⚪" },
+            { name: "برتقالي", code: "#FFA500", emoji: "🟠" },
+            { name: "بنفسجي", code: "#800080", emoji: "🟣" },
+            { name: "وردي", code: "#FF69B4", emoji: "🌸" },
+            { name: "بني", code: "#8B4513", emoji: "🤎" },
+            { name: "رمادي", code: "#808080", emoji: "🌫️" },
+            { name: "فيروزي", code: "#40E0D0", emoji: "💎" }
+        ];
+        
+        let currentRoomId = null;
+        let currentPlayer = null;
+        let roomListener = null;
+        let selectedSlot = null;
+        let myGuess = [null, null, null];
+        
+        function getRandomColors() {
+            let shuffled = [...ALL_COLORS];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled.slice(0, 3);
+        }
+        
+        function showMessage(msg, isError = false) {
+            const div = document.createElement('div');
+            div.textContent = msg;
+            div.style.cssText = `position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: ${isError ? '#f44336' : '#48bb78'}; color: white; padding: 8px 20px; border-radius: 40px; z-index: 9999; font-weight: bold;`;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+        
+        function createRoom() {
+            const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            currentRoomId = roomId;
+            currentPlayer = 'host';
+            
+            const roomData = {
+                host: { joined: true, secretColors: getRandomColors(), guess: [null, null, null], hasGuessed: false, revealedColors: [false, false, false], correctCount: 0 },
+                guest: { joined: false, secretColors: getRandomColors(), guess: [null, null, null], hasGuessed: false, revealedColors: [false, false, false], correctCount: 0 },
+                turn: 'host',
+                phase: 'waiting',
+                gameEnded: false,
+                winner: null,
+                feedback: { host: '', guest: '' }
+            };
+            
+            database.ref('rooms/' + roomId).set(roomData).then(() => { listenToRoom(roomId); showWaitingRoom(); });
+        }
+        
+        function joinRoom() {
+            const roomId = prompt("🔑 أدخل رمز الغرفة:", "").toUpperCase();
+            if (!roomId) return;
+            database.ref('rooms/' + roomId).once('value').then(snapshot => {
+                const room = snapshot.val();
+                if (!room) { showMessage("الغرفة غير موجودة!", true); return; }
+                if (room.guest.joined) { showMessage("الغرفة ممتلئة!", true); return; }
+                currentRoomId = roomId; currentPlayer = 'guest';
+                database.ref('rooms/' + roomId).update({ 'guest/joined': true, phase: 'playing', turn: 'host' }).then(() => { listenToRoom(roomId); showMessage("✅ تم الانضمام!"); });
+            });
+        }
+        
+        function listenToRoom(roomId) {
+            if (roomListener) roomListener.off();
+            roomListener = database.ref('rooms/' + roomId);
+            roomListener.on('value', (snapshot) => {
+                const room = snapshot.val();
+                if (!room) { showMainMenu(); return; }
+                renderGame(room);
+            });
+        }
+        
+        function showWaitingRoom() {
+            document.getElementById('mainContent').innerHTML = `<div class="room-section"><div class="room-code">${currentRoomId}</div><button onclick="copyCode()" class="btn-green">📋 نسخ الرمز</button><div class="spinner"></div><button onclick="backToMenu()" class="btn-red">🚪 إلغاء</button></div>`;
+        }
+        
+        function copyCode() { navigator.clipboard.writeText(currentRoomId); showMessage("✅ تم نسخ الرمز: " + currentRoomId); }
+        function backToMenu() { if (roomListener) roomListener.off(); if (currentRoomId) database.ref('rooms/' + currentRoomId).remove(); currentRoomId = null; currentPlayer = null; showMainMenu(); }
+        
+        function renderGame(room) {
+            const isHost = currentPlayer === 'host';
+            const myData = isHost ? room.host : room.guest;
+            const oppData = isHost ? room.guest : room.host;
+            const myTurn = (isHost && room.turn === 'host') || (!isHost && room.turn === 'guest');
+            const canPlay = room.phase === 'playing' && myTurn && !room.gameEnded;
+            const oppRevealed = oppData.revealedColors || [false, false, false];
+            const oppProgress = ((oppData.correctCount || 0) / 3) * 100;
+            
+            let html = `<div class="room-section"><div>🏠 رمز الغرفة: <strong class="room-code" style="font-size:1.2rem;">${currentRoomId}</strong></div><button onclick="copyCode()" class="btn-green">📋 نسخ</button><button onclick="backToMenu()" class="btn-red">🚪 مغادرة</button></div><div class="players"><div class="player-card ${room.turn === 'host' && room.phase === 'playing' && !room.gameEnded ? 'active' : ''} ${room.winner === 'host' ? 'winner' : ''}"><div class="player-name">${isHost ? '👤 أنت (المضيف)' : '👥 المضيف'}</div><div class="secret-colors">${myData.secretColors.map(c => `<div class="color-dot" style="background:${c.code}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">${c.emoji}</div>`).join('')}</div><div>🎯 ألوانك السرية</div>${room.turn === 'host' && room.phase === 'playing' && !room.gameEnded ? '<div class="turn-badge">✨ دورك ✨</div>' : ''}</div><div class="player-card ${room.turn === 'guest' && room.phase === 'playing' && !room.gameEnded ? 'active' : ''} ${room.winner === 'guest' ? 'winner' : ''}"><div class="player-name">${!isHost ? '👤 أنت (الضيف)' : '👥 الضيف'}</div><div class="secret-colors">${oppData.secretColors.map((c, i) => `<div class="color-dot" style="background:${oppRevealed[i] ? c.code : '#ccc'}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">${oppRevealed[i] ? c.emoji : '?'}</div>`).join('')}</div><div>❓ ألوان الخصم</div><div class="progress-bar"><div class="progress-fill" style="width:${oppProgress}%;"></div></div><div>✓ ${oppData.correctCount || 0}/3</div>${room.turn === 'guest' && room.phase === 'playing' && !room.gameEnded ? '<div class="turn-badge">✨ دورك ✨</div>' : ''}</div></div>`;
+            
+            if (room.phase === 'waiting') html += `<div class="waiting"><div class="spinner"></div><h3>⏳ في انتظار بدء اللعبة...</h3></div>`;
+            else if (room.phase === 'playing' && !room.gameEnded) {
+                const palette = ALL_COLORS.map(c => `<div class="color-option ${!canPlay ? 'disabled' : ''}" style="background:${c.code}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;" data-color='${JSON.stringify(c)}'>${c.emoji}</div>`).join('');
+                const slots = myGuess.map((c, i) => `<div class="guess-slot ${!canPlay ? 'disabled' : ''} ${selectedSlot === i ? 'selected' : ''}" style="background:${c ? c.code : '#e0e0e0'}; display:flex; align-items:center; justify-content:center; font-size:1.2rem;" data-slot="${i}">${c ? c.emoji : '?'}<div class="slot-number">${i+1}</div></div>`).join('');
+                html += `<div class="guess-slots" id="guessSlots">${slots}</div><div class="palette" id="palette">${palette}</div><button id="submitBtn" class="btn-orange" ${!canPlay ? 'disabled' : ''}>${canPlay ? '🎨 تقديم التخمين' : '⏳ انتظر دورك'}</button>`;
+                setTimeout(() => {
+                    if (canPlay) {
+                        document.querySelectorAll('#guessSlots .guess-slot').forEach(slot => { slot.onclick = () => { selectedSlot = parseInt(slot.dataset.slot); document.querySelectorAll('#guessSlots .guess-slot').forEach(s => s.classList.remove('selected')); slot.classList.add('selected'); }; });
+                        document.querySelectorAll('#palette .color-option').forEach(opt => { opt.onclick = () => { if (selectedSlot === null) { showMessage("اضغط على خانة أولاً", true); return; } myGuess[selectedSlot] = JSON.parse(opt.dataset.color); selectedSlot = null; renderGame(room); }; });
+                        document.getElementById('submitBtn').onclick = () => submitGuess(room);
+                    }
+                }, 100);
+            } else if (room.phase === 'finished') {
+                const p = getRandomPunishment();
+                html += `<div class="waiting"><h2>${room.winner === currentPlayer ? '🎉 فزت! 🎉' : '😔 خسرت!'}</h2><div class="feedback">${room.feedback[currentPlayer] || ''}</div><button onclick="showPunishment('${p}', ${room.winner === currentPlayer})" class="btn-purple">${room.winner === currentPlayer ? '🎲 اختيار حكم' : '😭 عرض الحكم'}</button><button onclick="newRound()" class="btn-orange">🎲 جولة جديدة</button></div>`;
+            }
+            document.getElementById('mainContent').innerHTML = html;
+        }
+        
+        function submitGuess(room) {
+            const isHost = currentPlayer === 'host';
+            if (room.phase !== 'playing' || room.gameEnded) return;
+            const myTurn = (isHost && room.turn === 'host') || (!isHost && room.turn === 'guest');
+            if (!myTurn) return;
+            if (myGuess.includes(null)) { showMessage("اختر 3 ألوان كاملة!", true); return; }
+            const opponentData = isHost ? room.guest : room.host;
+            const currentRevealed = [...(opponentData.revealedColors || [false, false, false])];
+            let newCorrectCount = opponentData.correctCount || 0, newlyRevealed = [];
+            for (let i = 0; i < 3; i++) { if (myGuess[i].code === opponentData.secretColors[i].code && !currentRevealed[i]) { currentRevealed[i] = true; newCorrectCount++; newlyRevealed.push(i + 1); } }
+            const isWinner = newCorrectCount === 3;
+            let feedbackMsg = isWinner ? "🎉 مبروك! وجدت كل الألوان!" : (newlyRevealed.length > 0 ? `✅ وجدت ${newlyRevealed.length} لون صحيح في المراكز: ${newlyRevealed.join('، ')}!` : "❌ لا توجد ألوان صحيحة!");
+            const updates = {};
+            updates[`${isHost ? 'host' : 'guest'}/guess`] = [...myGuess];
+            updates[`${isHost ? 'host' : 'guest'}/hasGuessed`] = true;
+            updates[`feedback/${isHost ? 'host' : 'guest'}`] = feedbackMsg;
+            updates[`${isHost ? 'guest' : 'host'}/revealedColors`] = currentRevealed;
+            updates[`${isHost ? 'guest' : 'host'}/correctCount`] = newCorrectCount;
+            if (isWinner) { updates['winner'] = currentPlayer; updates['gameEnded'] = true; updates['phase'] = 'finished'; showMessage("🎉 فزت! 🎉"); }
+            else { updates['turn'] = isHost ? 'guest' : 'host'; updates[`${isHost ? 'guest' : 'host'}/hasGuessed`] = false; }
+            database.ref('rooms/' + currentRoomId).update(updates);
+            myGuess = [null, null, null]; selectedSlot = null;
+        }
+        
+        function newRound() {
+            database.ref('rooms/' + currentRoomId).update({
+                'host/secretColors': getRandomColors(), 'guest/secretColors': getRandomColors(),
+                'host/guess': [null,null,null], 'guest/guess': [null,null,null],
+                'host/hasGuessed': false, 'guest/hasGuessed': false,
+                'host/revealedColors': [false,false,false], 'guest/revealedColors': [false,false,false],
+                'host/correctCount': 0, 'guest/correctCount': 0,
+                turn: 'host', phase: 'playing', winner: null, gameEnded: false, feedback: { host: '', guest: '' }
+            });
+            myGuess = [null, null, null]; selectedSlot = null;
+        }
+        
+        function showMainMenu() {
+            document.getElementById('mainContent').innerHTML = `
+                <div class="main-buttons">
+                    <button onclick="createRoom()" class="main-btn" style="background:#667eea;">✨ إنشاء غرفة جديدة ✨</button>
+                    <button onclick="joinRoom()" class="main-btn" style="background:#48bb78;">🔑 انضمام إلى غرفة 🔑</button>
+                </div>
+                <div class="room-section">
+                    <h3>📖 طريقة اللعب:</h3>
+                    <p>1️⃣ كل لاعب يحصل على <strong>3 ألوان سرية</strong> من 12 لوناً</p>
+                    <p>2️⃣ <strong style="color:#ff9800;">المضيف يبدأ أولاً</strong> بتخمين ألوان الضيف</p>
+                    <p>3️⃣ عند التخمين الصحيح، يظهر اللون للخصم فوراً</p>
+                    <p>4️⃣ من يجد الـ 3 ألوان الصحيحة يفوز!</p>
+                    <p>5️⃣ <strong style="color:#9c27b0;">عند الفوز، اختر حكماً للخاسر!</strong></p>
+                </div>
+            `;
+        }
+        
+        showMainMenu();
+    </script>
+</body>
+</html>
