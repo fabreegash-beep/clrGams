@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎨 لعبة تخمين الألوان - الألوان المكتشفة تبقى ظاهرة</title>
+    <title>🎨 لعبة تخمين الألوان</title>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <style>
@@ -65,6 +65,16 @@
             position: relative;
             overflow: hidden;
         }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%);
+            pointer-events: none;
+        }
 
         /* Buttons */
         .btn {
@@ -80,6 +90,19 @@
             font-weight: 700;
             font-family: 'Cairo', sans-serif;
             box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn::after {
+            content: '';
+            position: absolute;
+            top: 0; left: -100%;
+            width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: left 0.5s;
+        }
+        .btn:hover::after {
+            left: 100%;
         }
         .btn:hover {
             transform: translateY(-3px) scale(1.02);
@@ -88,6 +111,13 @@
         .btn-success {
             background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
             box-shadow: 0 8px 25px rgba(0, 184, 148, 0.3);
+        }
+        .btn-success:hover {
+            box-shadow: 0 12px 35px rgba(0, 184, 148, 0.5);
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #e84393 0%, #fd79a8 100%);
+            box-shadow: 0 8px 25px rgba(232, 67, 147, 0.3);
         }
         .btn-warning {
             background: linear-gradient(135deg, #fdcb6e 0%, #e17055 100%);
@@ -98,17 +128,13 @@
             background: rgba(255,255,255,0.12);
             box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
-        .btn-danger {
-            background: linear-gradient(135deg, #e84393 0%, #fd79a8 100%);
-            box-shadow: 0 8px 25px rgba(232, 67, 147, 0.3);
-        }
         .btn:disabled {
             opacity: 0.4;
             cursor: not-allowed;
             transform: none !important;
         }
 
-        /* Color Palette */
+        /* Color Palette - 12 Colors */
         .color-palette {
             display: grid;
             grid-template-columns: repeat(6, 1fr);
@@ -126,11 +152,22 @@
             align-items: center;
             justify-content: center;
             font-size: 1.8em;
+            position: relative;
             box-shadow: 0 5px 15px rgba(0,0,0,0.3);
         }
         .color-option:hover {
             transform: scale(1.15) rotate(5deg);
             box-shadow: 0 10px 30px rgba(255,255,255,0.3);
+            z-index: 10;
+        }
+        .color-option.selected {
+            border-color: #fff;
+            box-shadow: 0 0 30px rgba(255,255,255,0.6), 0 0 60px rgba(255,255,255,0.2);
+            transform: scale(1.1);
+        }
+        .color-option .emoji {
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+            pointer-events: none;
         }
         .color-red { background: linear-gradient(135deg, #e74c3c, #c0392b); }
         .color-blue { background: linear-gradient(135deg, #3498db, #2980b9); }
@@ -145,7 +182,13 @@
         .color-white { background: linear-gradient(135deg, #ecf0f1, #bdc3c7); }
         .color-lime { background: linear-gradient(135deg, #a8e6cf, #7bed9f); }
 
-        /* Slots for guesses */
+        /* Game Board */
+        .game-board {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
         .slots-container {
             display: flex;
             gap: 15px;
@@ -164,6 +207,7 @@
             transition: all 0.3s ease;
             background: rgba(255,255,255,0.05);
             font-size: 2em;
+            position: relative;
             box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);
         }
         .slot.filled {
@@ -175,45 +219,59 @@
             animation: glowPulse 1.5s infinite;
         }
         @keyframes glowPulse {
-            0%, 100% { box-shadow: 0 0 20px #fdcb6e, 0 0 40px rgba(253, 203, 110, 0.3); }
-            50% { box-shadow: 0 0 30px #fdcb6e, 0 0 60px rgba(253, 203, 110, 0.5); transform: scale(1.02); }
+            0%, 100% { box-shadow: 0 0 20px #fdcb6e, 0 0 40px rgba(253, 203, 110, 0.3); transform: scale(1); }
+            50% { box-shadow: 0 0 30px #fdcb6e, 0 0 60px rgba(253, 203, 110, 0.5); transform: scale(1.05); }
+        }
+        .slot .slot-emoji {
+            font-size: 1.5em;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
         }
 
-        /* Secret Code Display */
-        .secret-code {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-            margin: 20px 0;
-            flex-wrap: wrap;
+        /* Guess History */
+        .history-container {
+            max-height: 350px;
+            overflow-y: auto;
+            margin-top: 20px;
         }
-        .secret-slot {
-            width: 70px;
-            height: 70px;
-            border-radius: 16px;
-            background: rgba(255,255,255,0.08);
+        .guess-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 14px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+            border: 1px solid rgba(255,255,255,0.08);
+            transition: all 0.3s;
+        }
+        .guess-row:hover {
+            background: rgba(255,255,255,0.1);
+            transform: translateX(-5px);
+        }
+        .guess-colors {
+            display: flex;
+            gap: 8px;
+        }
+        .guess-color {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            border: 2px solid rgba(255,255,255,0.3);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 2em;
-            border: 2px solid rgba(255,255,255,0.2);
-            transition: all 0.3s;
-            box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);
+            font-size: 1.3em;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.2);
         }
-        .secret-slot.revealed {
-            border-color: #00b894;
-            box-shadow: 0 0 20px rgba(0, 184, 148, 0.4), inset 0 2px 10px rgba(0,0,0,0.2);
-            transform: scale(1.05);
-        }
-        .secret-slot.opponent-revealed {
-            border-color: #e74c3c;
-            box-shadow: 0 0 20px rgba(231, 76, 60, 0.4);
-            animation: revealPulse 0.5s ease;
-        }
-        @keyframes revealPulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.15); }
-            100% { transform: scale(1.05); }
+        .guess-result {
+            background: rgba(0, 184, 148, 0.25);
+            padding: 8px 18px;
+            border-radius: 25px;
+            font-weight: 700;
+            color: #00cec9;
+            border: 1px solid rgba(0, 206, 201, 0.3);
+            margin-right: auto;
         }
 
         /* Turn Indicator */
@@ -239,178 +297,14 @@
             color: #a4b0be;
         }
 
-        /* Cards Layout - Three columns for better visibility */
-        .game-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 20px;
-        }
-
-        /* Opponent Board - Where they reveal what they found from YOUR secret */
-        .opponent-board {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.15), rgba(192, 57, 43, 0.1));
-            padding: 25px;
-            border-radius: 20px;
-            margin: 20px 0;
-            border: 2px solid rgba(231, 76, 60, 0.3);
-        }
-        .opponent-board h3 {
-            text-align: center;
-            margin-bottom: 20px;
-            color: #fd79a8;
-            font-size: 1.3em;
-        }
-        .opponent-board p {
-            text-align: center;
-            color: #fd79a8;
-            font-size: 0.9em;
-            margin-top: 10px;
-        }
-
-        /* My Secret Board */
-        .my-secret-board {
-            background: linear-gradient(135deg, rgba(0, 184, 148, 0.15), rgba(0, 206, 201, 0.1));
-            padding: 25px;
-            border-radius: 20px;
-            margin: 20px 0;
-            border: 2px solid rgba(0, 184, 148, 0.3);
-        }
-        .my-secret-board h3 {
-            text-align: center;
-            margin-bottom: 20px;
-            color: #00cec9;
-            font-size: 1.3em;
-        }
-
-        /* What opponent found from YOUR secret - Permanently visible */
-        .found-by-opponent {
-            background: rgba(231, 76, 60, 0.1);
-            border-radius: 16px;
-            padding: 15px;
-            margin-top: 15px;
-            text-align: center;
-        }
-        .found-by-opponent h4 {
-            color: #fd79a8;
-            margin-bottom: 10px;
-            font-size: 1em;
-        }
-        .found-colors-container {
-            display: flex;
-            justify-content: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .found-color-item {
-            width: 50px;
-            height: 50px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5em;
-            border: 2px solid rgba(231, 76, 60, 0.5);
-            box-shadow: 0 0 15px rgba(231, 76, 60, 0.3);
-        }
-
-        /* Guess History */
-        .history-container {
-            max-height: 350px;
-            overflow-y: auto;
-            margin-top: 20px;
-        }
-        .guess-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 14px;
-            margin-bottom: 10px;
-            flex-wrap: wrap;
-        }
-        .guess-colors {
-            display: flex;
-            gap: 8px;
-        }
-        .guess-color {
-            width: 45px;
-            height: 45px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5em;
-        }
-        .guess-result {
-            background: rgba(0, 184, 148, 0.25);
-            padding: 8px 18px;
-            border-radius: 25px;
-            font-weight: 700;
-            color: #00cec9;
-        }
-
-        /* Action Buttons */
-        .action-buttons {
-            display: flex;
-            justify-content: center;
-            gap: 15px;
-            margin: 25px 0;
-            flex-wrap: wrap;
-        }
-
-        /* Room Info */
-        .room-info {
-            background: rgba(0,0,0,0.3);
-            padding: 25px;
-            border-radius: 20px;
-            text-align: center;
-            margin: 20px 0;
-        }
-        .room-number {
-            font-size: 2.5em;
-            font-weight: 900;
-            color: #fdcb6e;
-            letter-spacing: 8px;
-            margin-top: 10px;
-        }
-
-        /* Toast Notification */
-        .toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 18px 25px;
-            border-radius: 16px;
-            font-weight: 700;
-            z-index: 2000;
-            transform: translateX(150%);
-            transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
-            backdrop-filter: blur(20px);
-            max-width: 350px;
-        }
-        .toast.show {
-            transform: translateX(0);
-        }
-        .toast.success {
-            background: rgba(0, 184, 148, 0.25);
-            color: #00cec9;
-            border: 1px solid rgba(0, 206, 201, 0.4);
-        }
-        .toast.warning {
-            background: rgba(253, 203, 110, 0.25);
-            color: #fdcb6e;
-            border: 1px solid rgba(253, 203, 110, 0.4);
-        }
-
-        /* Result Overlay */
+        /* Result Screen */
         .result-screen {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.95);
+            background: rgba(0,0,0,0.92);
             display: none;
             align-items: center;
             justify-content: center;
@@ -426,22 +320,23 @@
             from { transform: scale(0.5); opacity: 0; }
             to { transform: scale(1); opacity: 1; }
         }
-        .result-emoji { font-size: 6em; margin-bottom: 20px; }
-        .result-text { font-size: 3em; margin-bottom: 30px; font-weight: 900; }
-
-        /* Loading & Inputs */
-        .loading {
-            display: inline-block;
-            width: 30px;
-            height: 30px;
-            border: 4px solid rgba(255,255,255,0.2);
-            border-radius: 50%;
-            border-top-color: #fdcb6e;
-            animation: spin 0.8s linear infinite;
+        .result-emoji {
+            font-size: 6em;
+            margin-bottom: 20px;
+            animation: bounce 1s infinite;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        input[type="text"] {
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+        .result-text {
+            font-size: 3em;
+            margin-bottom: 30px;
+            font-weight: 900;
+        }
+
+        /* Inputs */
+        input[type="text"], input[type="number"] {
             padding: 18px;
             border-radius: 16px;
             border: 2px solid rgba(255,255,255,0.2);
@@ -449,15 +344,39 @@
             color: white;
             font-size: 1.2em;
             width: 100%;
-            max-width: 300px;
-            margin: 12px auto;
+            margin: 12px 0;
             text-align: center;
             font-family: 'Cairo', sans-serif;
+            transition: all 0.3s;
         }
-        input:focus { outline: none; border-color: #667eea; }
-        input::placeholder { color: rgba(255,255,255,0.4); }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
+        }
+        input::placeholder {
+            color: rgba(255,255,255,0.4);
+        }
 
-        /* Settings */
+        /* Room Info */
+        .room-info {
+            background: rgba(0,0,0,0.3);
+            padding: 25px;
+            border-radius: 20px;
+            text-align: center;
+            margin: 20px 0;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .room-number {
+            font-size: 2.5em;
+            font-weight: 900;
+            color: #fdcb6e;
+            letter-spacing: 8px;
+            text-shadow: 0 0 20px rgba(253, 203, 110, 0.5);
+            margin-top: 10px;
+        }
+
+        /* Settings Toggle */
         .settings-toggle {
             display: flex;
             align-items: center;
@@ -466,6 +385,10 @@
             cursor: pointer;
             padding: 10px;
             border-radius: 12px;
+            transition: background 0.3s;
+        }
+        .settings-toggle:hover {
+            background: rgba(255,255,255,0.05);
         }
         .toggle-switch {
             width: 55px;
@@ -476,7 +399,9 @@
             transition: all 0.3s;
             margin-right: auto;
         }
-        .toggle-switch.active { background: #00b894; }
+        .toggle-switch.active {
+            background: #00b894;
+        }
         .toggle-switch::after {
             content: '';
             position: absolute;
@@ -486,43 +411,306 @@
             border-radius: 50%;
             top: 3px;
             right: 3px;
-            transition: all 0.3s;
+            transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
-        .toggle-switch.active::after { right: 30px; }
+        .toggle-switch.active::after {
+            right: 30px;
+        }
 
+        /* Secret Code */
+        .secret-code {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .secret-slot {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8em;
+            border: 2px solid rgba(255,255,255,0.2);
+            transition: all 0.3s;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .secret-slot.revealed {
+            border-color: #00b894;
+            box-shadow: 0 0 20px rgba(0, 184, 148, 0.4), inset 0 2px 10px rgba(0,0,0,0.2);
+            transform: scale(1.1);
+        }
+
+        /* Opponent Board */
+        .opponent-board {
+            background: rgba(0,0,0,0.25);
+            padding: 25px;
+            border-radius: 20px;
+            margin: 20px 0;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .opponent-board h3 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #fdcb6e;
+            font-size: 1.3em;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.05);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .color-palette {
+                grid-template-columns: repeat(4, 1fr);
+                gap: 8px;
+            }
+            .color-option {
+                font-size: 1.4em;
+            }
+            .slot {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5em;
+            }
+            h1 {
+                font-size: 1.6em;
+            }
+            .secret-slot {
+                width: 50px;
+                height: 50px;
+                font-size: 1.4em;
+            }
+            .result-text {
+                font-size: 2em;
+            }
+        }
+
+        /* Connection Status */
         .connection-status {
             position: fixed;
             top: 15px;
             left: 15px;
-            padding: 8px 16px;
+            padding: 10px 18px;
             border-radius: 25px;
-            font-size: 0.8em;
+            font-size: 0.85em;
             z-index: 100;
+            font-weight: 600;
             backdrop-filter: blur(10px);
         }
-        .connection-status.connected { background: rgba(0, 184, 148, 0.2); color: #00cec9; }
-        .connection-status.disconnected { background: rgba(231, 76, 60, 0.2); color: #e74c3c; }
+        .connection-status.connected {
+            background: rgba(0, 184, 148, 0.2);
+            color: #00cec9;
+            border: 1px solid rgba(0, 206, 201, 0.3);
+        }
+        .connection-status.disconnected {
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
 
-        @media (max-width: 600px) {
-            .color-palette { grid-template-columns: repeat(4, 1fr); gap: 8px; }
-            .slot { width: 60px; height: 60px; }
-            .secret-slot { width: 55px; height: 55px; font-size: 1.5em; }
-            .result-text { font-size: 2em; }
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 30px;
+            height: 30px;
+            border: 4px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            border-top-color: #fdcb6e;
+            animation: spin 0.8s linear infinite;
+            margin: 20px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Section titles */
+        .section-title {
+            text-align: center;
+            margin: 25px 0 15px;
+            font-size: 1.2em;
+            color: #a0a0c0;
+            position: relative;
+        }
+        .section-title::after {
+            content: '';
+            display: block;
+            width: 60px;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #667eea, transparent);
+            margin: 10px auto 0;
+            border-radius: 2px;
+        }
+
+        /* Action buttons container */
+        .action-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 25px 0;
+            flex-wrap: wrap;
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 18px 25px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 1.1em;
+            z-index: 2000;
+            transform: translateX(150%);
+            transition: transform 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+            max-width: 350px;
+        }
+        .toast.show {
+            transform: translateX(0);
+        }
+        .toast.info {
+            background: rgba(102, 126, 234, 0.25);
+            color: #a29bfe;
+            border-color: rgba(162, 155, 254, 0.4);
+        }
+        .toast.success {
+            background: rgba(0, 184, 148, 0.25);
+            color: #00cec9;
+            border-color: rgba(0, 206, 201, 0.4);
+        }
+        .toast.warning {
+            background: rgba(253, 203, 110, 0.25);
+            color: #fdcb6e;
+            border-color: rgba(253, 203, 110, 0.4);
+        }
+
+        /* Opponent discovered panel - ALWAYS VISIBLE */
+        .opponent-discovered-panel {
+            background: rgba(232, 67, 147, 0.1);
+            border: 2px solid rgba(232, 67, 147, 0.3);
+            border-radius: 20px;
+            padding: 20px;
+            margin: 15px 0;
+            text-align: center;
+            animation: slideDown 0.5s ease;
+        }
+        .opponent-discovered-panel h4 {
+            color: #fd79a8;
+            margin-bottom: 15px;
+            font-size: 1.2em;
+        }
+        .opponent-discovered-panel .discovered-list {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .opponent-discovered-panel .discovered-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+            background: rgba(0,0,0,0.3);
+            padding: 10px 15px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.1);
+            min-width: 70px;
+        }
+        .opponent-discovered-panel .discovered-item .discovered-color {
+            width: 50px;
+            height: 50px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8em;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+        .opponent-discovered-panel .discovered-item .discovered-pos {
+            font-size: 0.85em;
+            color: #a0a0c0;
+            font-weight: 600;
+        }
+        .opponent-discovered-panel .discovered-item .discovered-name {
+            font-size: 0.8em;
+            color: #fd79a8;
+            font-weight: 700;
+        }
+        .opponent-discovered-panel.empty {
+            opacity: 0.5;
+        }
+        .opponent-discovered-panel.empty h4 {
+            color: #888;
+        }
+        .opponent-discovered-panel .empty-text {
+            color: #888;
+            font-size: 0.95em;
+        }
+
+        /* Counter badge */
+        .discovered-count {
+            background: linear-gradient(135deg, #e84393, #fd79a8);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 700;
+            margin-right: 10px;
+            display: inline-block;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes flashNew {
+            0% { transform: scale(1); box-shadow: 0 0 0 rgba(232, 67, 147, 0); }
+            50% { transform: scale(1.2); box-shadow: 0 0 30px rgba(232, 67, 147, 0.6); }
+            100% { transform: scale(1); box-shadow: 0 0 0 rgba(232, 67, 147, 0); }
+        }
+        .discovered-item.new-item {
+            animation: flashNew 0.8s ease;
         }
     </style>
+<base target="_blank">
 </head>
 <body>
     <div class="connection-status disconnected" id="connectionStatus">🔴 غير متصل</div>
+
+    <!-- Toast Notification -->
     <div class="toast" id="toast"></div>
 
     <div class="container">
         <h1>🎨 لعبة تخمين الألوان</h1>
-        <p class="subtitle">اكتشف شفرة ألوان الخصم - الألوان المكتشفة تبقى ظاهرة!</p>
+        <p class="subtitle">اكتشف شفرة ألوان الخصم قبل أن يكتشف شفرتك!</p>
 
-        <!-- Screen 1: Menu -->
+        <!-- Screen 1: Main Menu -->
         <div class="screen active" id="menuScreen">
             <div class="card" style="text-align: center;">
-                <h2 style="margin-bottom: 30px;">🎮 اختر طريقة اللعب</h2>
+                <h2 style="margin-bottom: 30px; font-size: 1.5em;">🎮 اختر طريقة اللعب</h2>
                 <button class="btn btn-success" onclick="showScreen('createScreen')">🏠 إنشاء غرفة جديدة</button>
                 <br><br>
                 <button class="btn btn-warning" onclick="showScreen('joinScreen')">🚪 الانضمام لغرفة</button>
@@ -532,15 +720,15 @@
         <!-- Screen 2: Create Room -->
         <div class="screen" id="createScreen">
             <div class="card" style="text-align: center;">
-                <h2>🏠 إنشاء غرفة جديدة</h2>
-                <p style="color: #a0a0c0; margin: 20px 0;">اختر عدد الألوان في الشفرة (3-5):</p>
+                <h2 style="margin-bottom: 25px;">🏠 إنشاء غرفة جديدة</h2>
+                <p style="color: #a0a0c0; margin-bottom: 20px;">اختر عدد الألوان في الشفرة (3-5):</p>
                 <div style="display: flex; justify-content: center; gap: 15px; flex-wrap: wrap;">
                     <button class="btn" onclick="selectColorCount(3)" id="btn3">3 ألوان</button>
                     <button class="btn" onclick="selectColorCount(4)" id="btn4">4 ألوان</button>
                     <button class="btn" onclick="selectColorCount(5)" id="btn5">5 ألوان</button>
                 </div>
-                <div id="selectedCount" style="margin: 25px 0; font-size: 1.3em; color: #fdcb6e;"></div>
-                <button class="btn btn-success" onclick="createRoom()" id="createBtn" disabled>✨ إنشاء الغرفة</button>
+                <div id="selectedCount" style="margin: 25px 0; font-size: 1.3em; color: #fdcb6e; font-weight: 700;"></div>
+                <button class="btn btn-success" onclick="createRoom()" id="createBtn" disabled style="font-size: 1.2em; padding: 18px 40px;">✨ إنشاء الغرفة</button>
                 <br><br>
                 <button class="btn btn-secondary" onclick="showScreen('menuScreen')">🔙 رجوع</button>
             </div>
@@ -549,85 +737,98 @@
         <!-- Screen 3: Join Room -->
         <div class="screen" id="joinScreen">
             <div class="card" style="text-align: center;">
-                <h2>🚪 الانضمام لغرفة</h2>
-                <p style="color: #a0a0c0; margin: 20px 0;">أدخل رقم الغرفة المكون من 6 أحرف:</p>
-                <input type="text" id="joinRoomId" placeholder="مثال: ABC123" maxlength="6">
-                <button class="btn btn-warning" onclick="joinRoom()">🚀 الانضمام</button>
+                <h2 style="margin-bottom: 25px;">🚪 الانضمام لغرفة</h2>
+                <p style="color: #a0a0c0; margin-bottom: 15px;">أدخل رقم الغرفة المكون من 6 أحرف:</p>
+                <input type="text" id="joinRoomId" placeholder="مثال: ABC123" maxlength="6" style="max-width: 300px; margin: 15px auto; display: block;">
+                <button class="btn btn-warning" onclick="joinRoom()" style="font-size: 1.2em; padding: 18px 40px;">🚀 الانضمام</button>
                 <br><br>
                 <button class="btn btn-secondary" onclick="showScreen('menuScreen')">🔙 رجوع</button>
             </div>
         </div>
 
-        <!-- Screen 4: Waiting -->
+        <!-- Screen 4: Waiting Room -->
         <div class="screen" id="waitingScreen">
             <div class="card" style="text-align: center;">
-                <h2>⏳ في انتظار اللاعب الثاني...</h2>
+                <h2 style="margin-bottom: 20px;">⏳ في انتظار اللاعب الثاني...</h2>
                 <div class="room-info">
-                    <p>رقم الغرفة:</p>
+                    <p style="color: #a0a0c0; font-size: 1.1em;">رقم الغرفة:</p>
                     <div class="room-number" id="roomNumberDisplay">---</div>
                 </div>
+                <p style="margin: 20px 0; color: #a0a0c0;">شارك هذا الرقم مع صديقك ليدخل!</p>
                 <div class="loading"></div>
-                <br>
+                <br><br>
                 <button class="btn btn-danger" onclick="leaveRoom()">❌ إلغاء</button>
             </div>
         </div>
 
-        <!-- Screen 5: Game -->
+        <!-- Screen 5: Game Screen -->
         <div class="screen" id="gameScreen">
             <div class="card">
-                <div class="turn-indicator opponent-turn" id="turnIndicator">⏳ انتظر دورك...</div>
-
-                <div class="game-grid">
-                    <!-- ما يبقى ظاهراً: الألوان التي اكتشفها الخصم من شفرتك -->
-                    <div class="opponent-board">
-                        <h3>🔴 الألوان التي اكتشفها الخصم من شفرتك</h3>
-                        <div class="found-colors-container" id="opponentFoundColors">
-                            <div style="color: #888;">لم يكتشف الخصم أي لون بعد...</div>
-                        </div>
-                        <p>⚡ الخصم يرى هذه الألوان مكشوفة لديه - تبقى ظاهرة لك!</p>
-                    </div>
-
-                    <!-- شفرة الخصم - ما تحاول أنت اكتشافه -->
-                    <div style="background: rgba(102, 126, 234, 0.1); padding: 20px; border-radius: 20px;">
-                        <h3 style="text-align: center; color: #a29bfe;">🔐 شفرة الخصم (ما تحاول اكتشافه)</h3>
-                        <div class="secret-code" id="opponentSecret"></div>
-                        <p style="text-align: center; color: #888; font-size: 0.85em;">✨ كلما تخمن بشكل صحيح، ينكشف لون جديد هنا</p>
-                    </div>
-
-                    <!-- شفرتك السرية مع إظهار ما اكتشفه الخصم منها بشكل منفصل -->
-                    <div class="my-secret-board">
-                        <h3>✅ شفرتك السرية</h3>
-                        <div class="secret-code" id="mySecret"></div>
-                        <div class="found-by-opponent">
-                            <h4>📌 الألوان التي اكتشفها الخصم من شفرتك (مكشوفة لديه)</h4>
-                            <div class="found-colors-container" id="opponentFoundDetailed">
-                                <div style="color: #888;">لم يكتشف بعد...</div>
-                            </div>
-                        </div>
-                    </div>
+                <!-- Turn Indicator -->
+                <div class="turn-indicator opponent-turn" id="turnIndicator">
+                    ⏳ انتظر دورك...
                 </div>
 
-                <!-- تخمينك الحالي -->
-                <div class="section-title" style="margin-top: 20px;">🎯 تخمينك الحالي</div>
-                <div class="slots-container" id="guessSlots"></div>
+                <!-- Opponent discovered colors - ALWAYS VISIBLE PANEL -->
+                <div class="opponent-discovered-panel" id="opponentDiscoveredPanel">
+                    <h4>
+                        🔔 ما اكتشفه خصمك من شفرتك
+                        <span class="discovered-count" id="discoveredCount">0 / 0</span>
+                    </h4>
+                    <div class="discovered-list" id="discoveredList">
+                        <!-- Will be populated dynamically -->
+                    </div>
+                    <p class="empty-text" id="discoveredEmptyText" style="margin-top: 10px;">
+                        لم يكتشف خصمك أي لون بعد...
+                    </p>
+                </div>
 
-                <!-- لوحة الألوان -->
-                <div class="section-title">🎨 انقر على لون لملء الخانة</div>
+                <!-- Opponent's Secret (what you need to guess) -->
+                <div class="opponent-board">
+                    <h3>🔐 شفرة الخصم (ما يجب تخمينه)</h3>
+                    <div class="secret-code" id="opponentSecret"></div>
+                    <p style="text-align: center; color: #888; font-size: 0.9em; margin-top: 10px;">✨ الألوان المكشوفة تظهر تلقائياً عند التخمين الصحيح</p>
+                </div>
+
+                <!-- Your Secret -->
+                <div style="text-align: center; margin: 25px 0;">
+                    <h3 style="color: #00cec9; margin-bottom: 15px; font-size: 1.3em;">✅ شفرتك السرية (احتفظ بها!)</h3>
+                    <div class="secret-code" id="mySecret"></div>
+                </div>
+
+                <!-- Color Palette for Guessing -->
+                <div class="section-title">🎨 انقر على لون لملء الخانة التالية تلقائياً</div>
                 <div class="color-palette" id="gamePalette"></div>
 
+                <!-- Current Guess Slots -->
+                <div class="section-title">🎯 تخمينك الحالي</div>
+                <div class="slots-container" id="guessSlots"></div>
+
+                <!-- Action Buttons -->
                 <div class="action-buttons">
-                    <button class="btn btn-success" onclick="submitGuess()" id="submitBtn" disabled>📤 إرسال التخمين</button>
+                    <button class="btn btn-success" onclick="submitGuess()" id="submitBtn" disabled>
+                        📤 إرسال التخمين
+                    </button>
                     <button class="btn btn-danger" onclick="clearGuess()">🗑️ مسح الكل</button>
                     <button class="btn btn-secondary" onclick="undoLast()">↩️ تراجع</button>
                 </div>
 
-                <!-- سجل التخمينات -->
-                <div id="historySection">
+                <!-- Host Settings -->
+                <div id="hostSettings" style="display: none; margin-top: 25px; padding-top: 25px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <h4 style="margin-bottom: 15px; color: #a0a0c0;">⚙️ إعدادات المضيف</h4>
+                    <div class="settings-toggle" onclick="toggleHistory()">
+                        <span>إظهار/إخفاء سجل التخمينات</span>
+                        <div class="toggle-switch active" id="historyToggle"></div>
+                    </div>
+                </div>
+
+                <!-- Guess History -->
+                <div id="historySection" style="margin-top: 25px;">
                     <div class="section-title">📜 سجل تخميناتك</div>
                     <div class="history-container" id="guessHistory"></div>
                 </div>
 
-                <div style="text-align: center; margin-top: 20px;">
+                <div style="text-align: center; margin-top: 25px;">
                     <button class="btn btn-secondary" onclick="leaveGame()">🚪 خروج</button>
                 </div>
             </div>
@@ -637,11 +838,12 @@
         <div class="result-screen" id="resultScreen">
             <div class="result-emoji" id="resultEmoji">🎉</div>
             <div class="result-text" id="resultText">لقد فزت!</div>
-            <button class="btn btn-success" onclick="location.reload()">🔄 لعبة جديدة</button>
+            <button class="btn btn-success" onclick="location.reload()" style="font-size: 1.3em; padding: 20px 50px;">🔄 لعبة جديدة</button>
         </div>
     </div>
 
     <script>
+        // ==================== FIREBASE CONFIG ====================
         const firebaseConfig = {
             apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
             authDomain: "my-online-store-34f34.firebaseapp.com",
@@ -652,20 +854,22 @@
             appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
         };
 
-        let database, roomRef, roomListener;
+        let app, database, roomRef, roomListener;
         let isFirebaseConnected = false;
 
         try {
-            firebase.initializeApp(firebaseConfig);
+            app = firebase.initializeApp(firebaseConfig);
             database = firebase.database();
             isFirebaseConnected = true;
             document.getElementById('connectionStatus').className = 'connection-status connected';
             document.getElementById('connectionStatus').textContent = '🟢 متصل';
-        } catch(e) {
+        } catch (e) {
+            console.warn('Firebase not connected:', e);
             document.getElementById('connectionStatus').className = 'connection-status disconnected';
-            document.getElementById('connectionStatus').textContent = '🔴 غير متصل';
+            document.getElementById('connectionStatus').textContent = '🔴 غير متصل - تأكد من الإنترنت';
         }
 
+        // ==================== 12 COLORS WITH EMOJIS ====================
         const COLORS = [
             { name: 'أحمر', class: 'color-red', code: '#e74c3c', emoji: '🔴' },
             { name: 'أزرق', class: 'color-blue', code: '#3498db', emoji: '🔵' },
@@ -682,38 +886,95 @@
         ];
 
         let gameState = {
-            mode: null, role: null, roomId: null, colorCount: 4,
-            mySecret: [], opponentSecret: [],
-            currentGuess: [], currentSlotIndex: 0,
-            myGuesses: [], opponentGuesses: [],
-            revealedSlots: [],           // ما اكتشفته أنت من شفرة الخصم
-            opponentRevealedSlots: [],   // ما اكتشفه الخصم من شفرتك
-            isMyTurn: false, gameStarted: false, gameEnded: false,
+            mode: null,
+            role: null,
+            roomId: null,
+            colorCount: 4,
+            mySecret: [],
+            opponentSecret: [],
+            currentGuess: [],
+            currentSlotIndex: 0,
+            myGuesses: [],
+            opponentGuesses: [],
+            isMyTurn: false,
+            gameStarted: false,
+            gameEnded: false,
+            winner: null,
+            showHistory: true,
+            revealedSlots: [],
+            opponentRevealedSlots: [],
             availableColors: []
         };
 
-        function showToast(msg, type, duration = 4000) {
+        // ==================== TOAST NOTIFICATION ====================
+        function showToast(message, type = 'info', duration = 4000) {
             const toast = document.getElementById('toast');
-            toast.textContent = msg;
+            toast.textContent = message;
             toast.className = `toast ${type}`;
             toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), duration);
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, duration);
         }
 
-        function showScreen(screenId) {
-            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-            document.getElementById(screenId).classList.add('active');
+        // ==================== OPPONENT DISCOVERED PANEL ====================
+        function updateOpponentDiscoveredPanel() {
+            const panel = document.getElementById('opponentDiscoveredPanel');
+            const list = document.getElementById('discoveredList');
+            const count = document.getElementById('discoveredCount');
+            const emptyText = document.getElementById('discoveredEmptyText');
+
+            const discovered = [];
+            for (let i = 0; i < gameState.colorCount; i++) {
+                if (gameState.opponentRevealedSlots[i]) {
+                    discovered.push({
+                        position: i,
+                        color: gameState.mySecret[i]
+                    });
+                }
+            }
+
+            count.textContent = `${discovered.length} / ${gameState.colorCount}`;
+
+            if (discovered.length === 0) {
+                panel.classList.add('empty');
+                list.innerHTML = '';
+                emptyText.style.display = 'block';
+                return;
+            }
+
+            panel.classList.remove('empty');
+            emptyText.style.display = 'none';
+
+            list.innerHTML = '';
+            discovered.forEach((item, idx) => {
+                const div = document.createElement('div');
+                div.className = 'discovered-item';
+                div.innerHTML = `
+                    <div class="discovered-color ${item.color.class}" style="background: ${item.color.code}">
+                        ${item.color.emoji}
+                    </div>
+                    <div class="discovered-pos">الموضع ${item.position + 1}</div>
+                    <div class="discovered-name">${item.color.name}</div>
+                `;
+                list.appendChild(div);
+            });
         }
 
+        // ==================== UTILITY FUNCTIONS ====================
         function generateRoomId() {
             const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
             let result = '';
-            for (let i = 0; i < 6; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+            for (let i = 0; i < 6; i++) {
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
             return result;
         }
 
         function generateSecret(count) {
-            const secret = [], available = [...gameState.availableColors];
+            const secret = [];
+            const available = [...gameState.availableColors];
             for (let i = 0; i < count; i++) {
                 const idx = Math.floor(Math.random() * available.length);
                 secret.push(available.splice(idx, 1)[0]);
@@ -721,20 +982,38 @@
             return secret;
         }
 
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        // ==================== MENU FUNCTIONS ====================
         function selectColorCount(count) {
             gameState.colorCount = count;
-            document.getElementById('selectedCount').innerHTML = `✅ تم اختيار: ${count} ألوان`;
+            document.getElementById('selectedCount').textContent = `✅ تم اختيار: ${count} ألوان في الشفرة`;
             document.getElementById('createBtn').disabled = false;
-            [3,4,5].forEach(n => {
+
+            [3, 4, 5].forEach(n => {
                 const btn = document.getElementById(`btn${n}`);
-                if (n === count) btn.style.background = 'linear-gradient(135deg, #00b894 0%, #00cec9 100%)';
-                else btn.style.background = '';
+                if (n === count) {
+                    btn.style.background = 'linear-gradient(135deg, #00b894 0%, #00cec9 100%)';
+                    btn.style.boxShadow = '0 8px 25px rgba(0, 184, 148, 0.4)';
+                } else {
+                    btn.style.background = '';
+                    btn.style.boxShadow = '';
+                }
             });
         }
 
+        // ==================== ROOM MANAGEMENT ====================
         function createRoom() {
-            if (!isFirebaseConnected) { alert('لا يوجد اتصال بالإنترنت!'); return; }
-            gameState.mode = 'online'; gameState.role = 'host';
+            if (!isFirebaseConnected) {
+                alert('🔴 لا يوجد اتصال بالإنترنت! تأكد من اتصالك وحاول مرة أخرى.');
+                return;
+            }
+
+            gameState.mode = 'online';
+            gameState.role = 'host';
             gameState.roomId = generateRoomId();
             gameState.availableColors = [...COLORS];
             gameState.mySecret = generateSecret(gameState.colorCount);
@@ -746,12 +1025,18 @@
             roomRef = database.ref('colorGameRooms/' + gameState.roomId);
             roomRef.set({
                 hostSecret: gameState.mySecret.map(c => c.code),
-                colorCount: gameState.colorCount, status: 'waiting',
-                hostReady: true, guestReady: false, currentTurn: 'host',
-                hostGuesses: [], guestGuesses: [],
+                colorCount: gameState.colorCount,
+                status: 'waiting',
+                hostReady: true,
+                guestReady: false,
+                currentTurn: 'host',
+                hostGuesses: [],
+                guestGuesses: [],
                 hostRevealed: new Array(gameState.colorCount).fill(false),
                 guestRevealed: new Array(gameState.colorCount).fill(false),
-                winner: null
+                lastGuessResult: null,
+                winner: null,
+                createdAt: firebase.database.ServerValue.TIMESTAMP
             });
 
             document.getElementById('roomNumberDisplay').textContent = gameState.roomId;
@@ -760,6 +1045,7 @@
             roomListener = roomRef.on('value', (snapshot) => {
                 const data = snapshot.val();
                 if (!data) return;
+
                 if (data.status === 'playing' && !gameState.gameStarted) {
                     gameState.gameStarted = true;
                     gameState.opponentSecret = data.guestSecret.map(code => COLORS.find(c => c.code === code));
@@ -767,21 +1053,41 @@
                     initGameUI();
                     showScreen('gameScreen');
                 }
-                if (data.status === 'playing') updateGameFromFirebase(data);
+
+                if (data.status === 'playing') {
+                    updateGameFromFirebase(data);
+                }
             });
         }
 
         function joinRoom() {
-            if (!isFirebaseConnected) { alert('لا يوجد اتصال بالإنترنت!'); return; }
-            const roomId = document.getElementById('joinRoomId').value.toUpperCase().trim();
-            if (roomId.length !== 6) { alert('رقم الغرفة يجب أن يكون 6 أحرف!'); return; }
-            gameState.mode = 'online'; gameState.role = 'guest'; gameState.roomId = roomId;
-            roomRef = database.ref('colorGameRooms/' + roomId);
+            if (!isFirebaseConnected) {
+                alert('🔴 لا يوجد اتصال بالإنترنت! تأكد من اتصالك وحاول مرة أخرى.');
+                return;
+            }
 
+            const roomId = document.getElementById('joinRoomId').value.toUpperCase().trim();
+            if (roomId.length !== 6) {
+                alert('❌ رقم الغرفة يجب أن يكون 6 أحرف!');
+                return;
+            }
+
+            gameState.mode = 'online';
+            gameState.role = 'guest';
+            gameState.roomId = roomId;
+
+            roomRef = database.ref('colorGameRooms/' + roomId);
             roomRef.once('value').then((snapshot) => {
                 const data = snapshot.val();
-                if (!data) { alert('الغرفة غير موجودة!'); return; }
-                if (data.status !== 'waiting') { alert('اللعبة بدأت بالفعل!'); return; }
+                if (!data) {
+                    alert('❌ الغرفة غير موجودة!');
+                    return;
+                }
+                if (data.status !== 'waiting') {
+                    alert('❌ الغرفة ممتلئة أو اللعبة بدأت بالفعل!');
+                    return;
+                }
+
                 gameState.colorCount = data.colorCount;
                 gameState.availableColors = [...COLORS];
                 gameState.mySecret = generateSecret(gameState.colorCount);
@@ -792,54 +1098,77 @@
 
                 roomRef.update({
                     guestSecret: gameState.mySecret.map(c => c.code),
-                    status: 'playing', guestReady: true
+                    status: 'playing',
+                    guestReady: true
                 });
 
                 gameState.opponentSecret = data.hostSecret.map(code => COLORS.find(c => c.code === code));
                 gameState.gameStarted = true;
                 gameState.isMyTurn = data.currentTurn === 'guest';
-                initGameUI();
-                showScreen('gameScreen');
 
                 roomListener = roomRef.on('value', (snapshot) => {
                     const roomData = snapshot.val();
-                    if (roomData && roomData.status === 'playing') updateGameFromFirebase(roomData);
+                    if (roomData && roomData.status === 'playing') {
+                        updateGameFromFirebase(roomData);
+                    }
                 });
+
+                initGameUI();
+                showScreen('gameScreen');
             });
         }
 
         function leaveRoom() {
             if (roomRef) {
-                if (gameState.role === 'host') roomRef.remove();
+                if (gameState.role === 'host') {
+                    roomRef.remove();
+                }
                 roomRef.off('value', roomListener);
             }
             location.reload();
         }
-        function leaveGame() { leaveRoom(); }
 
+        function leaveGame() {
+            leaveRoom();
+        }
+
+        // ==================== GAME UI ====================
         function initGameUI() {
+            if (gameState.role === 'host') {
+                document.getElementById('hostSettings').style.display = 'block';
+            }
+
+            // Initialize opponent discovered panel
+            updateOpponentDiscoveredPanel();
+
+            // Generate color palette with emojis
             const palette = document.getElementById('gamePalette');
             palette.innerHTML = '';
-            gameState.availableColors.forEach((color, idx) => {
+            gameState.availableColors.forEach((color, index) => {
                 const div = document.createElement('div');
                 div.className = `color-option ${color.class}`;
-                div.innerHTML = `<span style="font-size:1.8em">${color.emoji}</span>`;
-                div.onclick = () => selectColor(idx);
+                div.title = color.name;
+                div.innerHTML = `<span class="emoji">${color.emoji}</span>`;
+                div.onclick = () => selectColor(index);
                 palette.appendChild(div);
             });
 
+            // Generate guess slots
             const slotsContainer = document.getElementById('guessSlots');
             slotsContainer.innerHTML = '';
+
             for (let i = 0; i < gameState.colorCount; i++) {
                 const slot = document.createElement('div');
                 slot.className = 'slot';
                 slot.id = `slot-${i}`;
-                slot.innerHTML = '<span style="font-size:1.5em">❓</span>';
-                slot.onclick = () => { gameState.currentSlotIndex = i; highlightNextSlot(); };
+                slot.innerHTML = `<span class="slot-emoji">❓</span>`;
+                slot.onclick = () => fillSlot(i);
                 slotsContainer.appendChild(slot);
             }
 
-            // عرض شفرتك السرية
+            updateOpponentSecretDisplay();
+
+            // Show my secret with emojis
             const mySecretDiv = document.getElementById('mySecret');
             mySecretDiv.innerHTML = '';
             gameState.mySecret.forEach(color => {
@@ -850,18 +1179,19 @@
                 mySecretDiv.appendChild(div);
             });
 
-            updateOpponentSecretDisplay();
             updateTurnIndicator();
             highlightNextSlot();
-            updateOpponentFoundDisplay(); // عرض ما اكتشفه الخصم - يبقى ظاهراً
         }
 
         function updateOpponentSecretDisplay() {
             const container = document.getElementById('opponentSecret');
             container.innerHTML = '';
+
             for (let i = 0; i < gameState.colorCount; i++) {
                 const div = document.createElement('div');
                 div.className = 'secret-slot';
+                div.id = `opponent-slot-${i}`;
+
                 if (gameState.revealedSlots[i]) {
                     const color = gameState.opponentSecret[i];
                     div.className += ` ${color.class} revealed`;
@@ -874,70 +1204,45 @@
             }
         }
 
-        // دالة مهمة: تحديث عرض الألوان التي اكتشفها الخصم من شفرتك - تبقى ظاهرة!
-        function updateOpponentFoundDisplay() {
-            // هذه هي الألوان التي اكتشفها الخصم من شفرتك (opponentRevealedSlots)
-            const foundContainer = document.getElementById('opponentFoundColors');
-            const foundDetailed = document.getElementById('opponentFoundDetailed');
-            
-            const foundColors = [];
-            for (let i = 0; i < gameState.colorCount; i++) {
-                if (gameState.opponentRevealedSlots[i]) {
-                    foundColors.push({
-                        position: i,
-                        color: gameState.mySecret[i]
-                    });
-                }
-            }
-
-            if (foundColors.length === 0) {
-                foundContainer.innerHTML = '<div style="color: #888;">🔍 لم يكتشف الخصم أي لون بعد...</div>';
-                if (foundDetailed) foundDetailed.innerHTML = '<div style="color: #888;">لم يكتشف بعد...</div>';
-            } else {
-                foundContainer.innerHTML = '';
-                if (foundDetailed) foundDetailed.innerHTML = '';
-                
-                foundColors.forEach(f => {
-                    const div = document.createElement('div');
-                    div.className = 'found-color-item';
-                    div.style.background = f.color.code;
-                    div.innerHTML = f.color.emoji;
-                    div.title = `${f.color.name} (موضع ${f.position + 1})`;
-                    foundContainer.appendChild(div);
-                    
-                    if (foundDetailed) {
-                        const div2 = document.createElement('div');
-                        div2.className = 'found-color-item';
-                        div2.style.background = f.color.code;
-                        div2.innerHTML = f.color.emoji;
-                        div2.title = `${f.color.name} (موضع ${f.position + 1})`;
-                        foundDetailed.appendChild(div2);
-                    }
-                });
-            }
-        }
-
         function highlightNextSlot() {
             document.querySelectorAll('.slot').forEach((slot, i) => {
-                if (i === gameState.currentSlotIndex && gameState.isMyTurn && !gameState.gameEnded) {
-                    slot.classList.add('current-turn');
-                } else {
-                    slot.classList.remove('current-turn');
-                }
+                slot.style.border = i === gameState.currentSlotIndex && gameState.isMyTurn && !gameState.gameEnded
+                    ? '3px solid #fdcb6e'
+                    : '3px dashed rgba(255,255,255,0.3)';
             });
         }
 
+        // ==================== COLOR SELECTION ====================
         function selectColor(index) {
             if (!gameState.isMyTurn || gameState.gameEnded) return;
             if (gameState.currentSlotIndex >= gameState.colorCount) return;
+
             const color = gameState.availableColors[index];
+
             gameState.currentGuess[gameState.currentSlotIndex] = color;
+
             const slot = document.getElementById(`slot-${gameState.currentSlotIndex}`);
             slot.className = `slot filled ${color.class}`;
             slot.style.background = color.code;
-            slot.innerHTML = `<span style="font-size:1.5em">${color.emoji}</span>`;
+            slot.innerHTML = `<span class="slot-emoji">${color.emoji}</span>`;
+
             gameState.currentSlotIndex++;
+
+            document.querySelectorAll('.color-option').forEach((el, i) => {
+                el.classList.remove('selected');
+            });
+
             highlightNextSlot();
+            checkGuessComplete();
+        }
+
+        function fillSlot(slotIndex) {
+            if (!gameState.isMyTurn || gameState.gameEnded) return;
+            gameState.currentSlotIndex = slotIndex;
+            highlightNextSlot();
+        }
+
+        function checkGuessComplete() {
             const isComplete = gameState.currentGuess.every(c => c !== null);
             document.getElementById('submitBtn').disabled = !isComplete;
         }
@@ -948,7 +1253,7 @@
             document.querySelectorAll('.slot').forEach((slot, i) => {
                 slot.className = 'slot';
                 slot.style.background = '';
-                slot.innerHTML = '<span style="font-size:1.5em">❓</span>';
+                slot.innerHTML = `<span class="slot-emoji">❓</span>`;
             });
             document.getElementById('submitBtn').disabled = true;
             highlightNextSlot();
@@ -958,45 +1263,78 @@
             if (gameState.currentSlotIndex <= 0) return;
             gameState.currentSlotIndex--;
             gameState.currentGuess[gameState.currentSlotIndex] = null;
+
             const slot = document.getElementById(`slot-${gameState.currentSlotIndex}`);
             slot.className = 'slot';
             slot.style.background = '';
-            slot.innerHTML = '<span style="font-size:1.5em">❓</span>';
+            slot.innerHTML = `<span class="slot-emoji">❓</span>`;
+
             document.getElementById('submitBtn').disabled = true;
             highlightNextSlot();
         }
 
+        // ==================== GUESS LOGIC ====================
         function submitGuess() {
             if (!gameState.isMyTurn || gameState.gameEnded) return;
+
             const guess = gameState.currentGuess;
             const secret = gameState.opponentSecret;
+
             let correct = 0;
             const newlyRevealed = [];
             const newRevealed = [...gameState.revealedSlots];
+
             for (let i = 0; i < gameState.colorCount; i++) {
                 if (guess[i].code === secret[i].code) {
                     correct++;
-                    if (!newRevealed[i]) newlyRevealed.push({ position: i, color: secret[i] });
+                    if (!newRevealed[i]) {
+                        newlyRevealed.push({
+                            position: i,
+                            color: secret[i]
+                        });
+                    }
                     newRevealed[i] = true;
                 }
             }
-            const guessRecord = { colors: guess.map(c => c.code), correct: correct, timestamp: Date.now() };
+
+            const guessRecord = {
+                colors: guess.map(c => c.code),
+                correct: correct,
+                newlyRevealed: newlyRevealed.map(r => ({ position: r.position, code: r.color.code })),
+                timestamp: Date.now()
+            };
             gameState.myGuesses.push(guessRecord);
+
             gameState.revealedSlots = newRevealed;
             updateOpponentSecretDisplay();
             addGuessToHistory(guessRecord);
+
+            // Show toast for newly revealed colors
             if (newlyRevealed.length > 0) {
-                const names = newlyRevealed.map(r => r.color.emoji + r.color.name).join('، ');
-                showToast(`🎉 اكتشفت: ${names}`, 'success', 5000);
+                const colorNames = newlyRevealed.map(r => r.color.emoji + ' ' + r.color.name).join('، ');
+                showToast(`🎉 اكتشفت لوناً صحيحاً: ${colorNames}`, 'success', 5000);
             }
-            if (correct === gameState.colorCount) { endGame(true); return; }
+
+            if (correct === gameState.colorCount) {
+                endGame(true);
+                return;
+            }
+
             if (gameState.mode === 'online') {
-                roomRef.update({
+                const updates = {
                     currentTurn: gameState.role === 'host' ? 'guest' : 'host',
                     [`${gameState.role}Guesses`]: gameState.myGuesses,
-                    [`${gameState.role}Revealed`]: newRevealed
-                });
+                    [`${gameState.role}Revealed`]: newRevealed,
+                    lastGuessResult: {
+                        by: gameState.role,
+                        correct: correct,
+                        newlyRevealed: newlyRevealed.map(r => ({ position: r.position, code: r.color.code })),
+                        totalRevealed: newRevealed.filter(Boolean).length
+                    }
+                };
+                roomRef.update(updates);
             }
+
             clearGuess();
         }
 
@@ -1004,8 +1342,10 @@
             const history = document.getElementById('guessHistory');
             const row = document.createElement('div');
             row.className = 'guess-row';
+
             const colorsDiv = document.createElement('div');
             colorsDiv.className = 'guess-colors';
+
             record.colors.forEach(code => {
                 const color = COLORS.find(c => c.code === code);
                 const div = document.createElement('div');
@@ -1014,77 +1354,149 @@
                 div.innerHTML = color.emoji;
                 colorsDiv.appendChild(div);
             });
+
             const resultDiv = document.createElement('div');
             resultDiv.className = 'guess-result';
             resultDiv.textContent = `✅ ${record.correct} صحيح`;
+
             row.appendChild(colorsDiv);
             row.appendChild(resultDiv);
             history.insertBefore(row, history.firstChild);
         }
 
+        // ==================== FIREBASE SYNC ====================
         function updateGameFromFirebase(data) {
             const isHost = gameState.role === 'host';
+
             gameState.isMyTurn = data.currentTurn === gameState.role;
             updateTurnIndicator();
             highlightNextSlot();
 
-            // تحديث ما اكتشفه الخصم من شفرتك
+            const opponentKey = isHost ? 'guestGuesses' : 'hostGuesses';
             const opponentRevealedKey = isHost ? 'guestRevealed' : 'hostRevealed';
+
+            // Check opponent's revealed slots (which colors of MY secret they found)
             if (data[opponentRevealedKey]) {
                 const prevRevealed = [...gameState.opponentRevealedSlots];
                 const newRevealed = data[opponentRevealedKey];
-                let changed = false;
+
+                // Find newly revealed slots
+                const newlyFound = [];
                 for (let i = 0; i < gameState.colorCount; i++) {
                     if (newRevealed[i] && !prevRevealed[i]) {
-                        changed = true;
-                        showToast(`⚠️ الخصم اكتشف ${gameState.mySecret[i].emoji} ${gameState.mySecret[i].name}!`, 'warning', 5000);
+                        newlyFound.push({
+                            position: i,
+                            color: gameState.mySecret[i]
+                        });
                     }
                 }
+
+                if (newlyFound.length > 0) {
+                    gameState.opponentRevealedSlots = newRevealed;
+                    updateOpponentDiscoveredPanel();
+
+                    // Show toast notification
+                    const colorNames = newlyFound.map(f => f.color.emoji + ' ' + f.color.name).join('، ');
+                    const posNames = newlyFound.map(f => {
+                        const names = ['الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس'];
+                        return names[f.position] || (f.position + 1);
+                    }).join(' و ');
+
+                    showToast(
+                        `⚠️ خصمك عثر على لون صحيح في الموضع ${posNames}: ${colorNames}`,
+                        'warning',
+                        6000
+                    );
+
+                    // Flash animation on newly added items
+                    setTimeout(() => {
+                        const items = document.querySelectorAll('.discovered-item');
+                        items.forEach((item, idx) => {
+                            if (idx >= items.length - newlyFound.length) {
+                                item.classList.add('new-item');
+                                setTimeout(() => item.classList.remove('new-item'), 800);
+                            }
+                        });
+                    }, 50);
+                }
+
                 gameState.opponentRevealedSlots = newRevealed;
-                if (changed) updateOpponentFoundDisplay(); // تحديث العرض - يبقى ظاهراً!
             }
 
-            const opponentGuessesKey = isHost ? 'guestGuesses' : 'hostGuesses';
-            if (data[opponentGuessesKey] && data[opponentGuessesKey].length > gameState.opponentGuesses.length) {
-                gameState.opponentGuesses = data[opponentGuessesKey];
-                const last = data[opponentGuessesKey][data[opponentGuessesKey].length - 1];
-                if (last.correct === gameState.colorCount) endGame(false);
+            if (data[opponentKey] && data[opponentKey].length > gameState.opponentGuesses.length) {
+                gameState.opponentGuesses = data[opponentKey];
+                const lastGuess = data[opponentKey][data[opponentKey].length - 1];
+
+                if (lastGuess.correct === gameState.colorCount) {
+                    endGame(false);
+                    return;
+                }
             }
 
-            if (data.winner) endGame(data.winner === gameState.role);
+            if (data.winner) {
+                endGame(data.winner === gameState.role);
+            }
         }
 
+        // ==================== TURN & UI UPDATES ====================
         function updateTurnIndicator() {
-            const ind = document.getElementById('turnIndicator');
+            const indicator = document.getElementById('turnIndicator');
             if (gameState.isMyTurn) {
-                ind.className = 'turn-indicator my-turn';
-                ind.innerHTML = '🎯 دورك! اختر الألوان ثم أرسل التخمين';
+                indicator.className = 'turn-indicator my-turn';
+                indicator.innerHTML = '🎯 دورك! انقر على لون لملء الخانة';
             } else {
-                ind.className = 'turn-indicator opponent-turn';
-                ind.innerHTML = '⏳ انتظر دور الخصم...';
+                indicator.className = 'turn-indicator opponent-turn';
+                indicator.innerHTML = '⏳ انتظر دور الخصم...';
             }
         }
 
+        function toggleHistory() {
+            gameState.showHistory = !gameState.showHistory;
+            const toggle = document.getElementById('historyToggle');
+            const section = document.getElementById('historySection');
+
+            if (gameState.showHistory) {
+                toggle.classList.add('active');
+                section.style.display = 'block';
+            } else {
+                toggle.classList.remove('active');
+                section.style.display = 'none';
+            }
+        }
+
+        // ==================== END GAME ====================
         function endGame(won) {
             gameState.gameEnded = true;
+
             const resultScreen = document.getElementById('resultScreen');
             const emoji = document.getElementById('resultEmoji');
             const text = document.getElementById('resultText');
+
             if (won) {
-                emoji.textContent = '🎉🏆🎉';
-                text.textContent = 'لقد فزت!';
+                emoji.textContent = '🎉';
+                text.textContent = '🏆 لقد فزت!';
                 text.style.color = '#00cec9';
             } else {
-                emoji.textContent = '💔😢💔';
-                text.textContent = 'لقد خسرت!';
+                emoji.textContent = '💔';
+                text.textContent = '😢 لقد خسرت!';
                 text.style.color = '#e84393';
             }
+
             resultScreen.classList.add('show');
-            if (roomRef) roomRef.update({ winner: won ? gameState.role : (gameState.role === 'host' ? 'guest' : 'host') });
+
+            if (gameState.mode === 'online' && roomRef) {
+                roomRef.update({
+                    winner: won ? gameState.role : (gameState.role === 'host' ? 'guest' : 'host'),
+                    status: 'finished'
+                });
+            }
         }
 
+        // ==================== CLEANUP ====================
         window.onbeforeunload = function() {
-            if (roomRef && gameState.role === 'host') roomRef.remove();
+            if (roomRef && gameState.role === 'host') {
+                roomRef.remove();
+            }
         };
     </script>
 </body>
