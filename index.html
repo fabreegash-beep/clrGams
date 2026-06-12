@@ -23,15 +23,16 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // 🛠️ حل مشكلة الشاشة السوداء: خوادم اتصال متعددة لضمان ربط الشبكات المختلفة
+        // 🛠️ التحديث الجوهري: خوادم متطورة ومفتوحة لإنهاء مشكلة الشاشة الرمادية واختراق حظر الشبكات
         const iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
-            ]
+                { urls: 'stun:relay.metered.ca:80' }, // خادم ترحيل مجاني للمساعدة في الربط الصعب
+                { urls: 'stun:stun.nextcloud.com:443' }
+            ],
+            iceTransportPolicy: 'all'
         };
 
         let peerConnection;
@@ -60,8 +61,8 @@
             
             switchScreen(welcomeScreen, roomScreen);
             hostControlArea.style.display = "block"; 
-            remoteVideo.style.display = "none"; // المضيف يتصفح الإطار مباشرة ولا يحتاج للفيديو
-            statusText.innerText = "تم فتح الروم. ضع رابط الموقع في الخانة بالأسفل واضغط (بدء البث) لتفعيله للضيوف.";
+            remoteVideo.style.display = "none";
+            statusText.innerText = "تم فتح الروم. ضع الرابط واضغط (بدء بث الموقع)، وتأكد من مشاركة نافذتك بالكامل.";
 
             await remove(ref(db, `rooms/${roomId}`));
 
@@ -73,7 +74,6 @@
             });
         });
 
-        // تشغيل الرابط وبدء التقاط الشاشة وبثها فوراً
         btnSendUrl.addEventListener('click', async () => {
             let url = urlInput.value.trim();
             if (!url) return alert("الرجاء إدخال الرابط أولاً");
@@ -81,39 +81,44 @@
 
             sharedFrame.src = url;
             sharedFrame.style.display = "block";
-            statusText.innerText = "جاري تحميل الموقع وتحضير كاميرا البث للضيوف...";
+            statusText.innerText = "جاري الاتصال والتقاط الشاشة برمجياً...";
 
             try {
-                // التقاط تبويب المتصفح أو الشاشة لبثها
                 localStream = await navigator.mediaDevices.getDisplayMedia({ 
-                    video: { frameRate: 30 }, 
+                    video: { frameRate: 24, width: { max: 1280 }, height: { max: 720 } }, // تقليل الجودة قليلاً لسرعة الربط
                     audio: true 
                 });
                 
                 setupWebrtcAsHost();
                 
                 localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-                statusText.innerText = "البث المباشر شغال الآن! تحكم بالموقع بالأسفل والجميع يتابع حركاتك.";
+                statusText.innerText = "البث المباشر شغال الآن بنجاح!";
                 hostControlArea.style.display = "none"; 
             } catch (error) {
-                alert("تنبيه للمضيف: يجب الموافقة على مشاركة تبويب المتصفح لكي لا يظهر شاشة سوداء عند الضيوف.");
+                alert("فشل بدء التقاط الشاشة. تأكد من إعطاء الصلاحية للمتصفح.");
             }
         });
 
         async function setupWebrtcAsHost() {
             peerConnection = new RTCPeerConnection(iceServers);
+            
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
                     set(ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}`), event.candidate.toJSON());
                 }
             };
+
             const offerDescription = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offerDescription);
+            
             await update(ref(db, `rooms/${roomId}`), {
                 offer: { type: offerDescription.type, sdp: offerDescription.sdp }
             });
+
             onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snapshot) => {
-                if (snapshot.exists()) peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(()=>{});
+                if (snapshot.exists() && peerConnection) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(()=>{});
+                }
             });
         }
 
@@ -132,8 +137,8 @@
                 if (!peerConnection) {
                     switchScreen(welcomeScreen, roomScreen);
                     displayRoomCode.innerText = roomId;
-                    sharedFrame.style.display = "none"; // الضيف لا يفتح الموقع بنفسه بل يستقبله كفيديو
-                    remoteVideo.style.display = "block"; // إظهار شاشة الفيديو عند الضيف
+                    sharedFrame.style.display = "none"; 
+                    remoteVideo.style.display = "block"; 
                     await setupWebrtcAsGuest(data.offer);
                 }
             });
@@ -142,17 +147,16 @@
         async function setupWebrtcAsGuest(offer) {
             peerConnection = new RTCPeerConnection(iceServers);
             
-            // 🛠️ حل مشكلة الشاشة السوداء: تفعيل استقبال البث وتشغيله تلقائياً وتجاوز حظر المتصفحات
             peerConnection.ontrack = (event) => {
                 if (event.streams && event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
                     remoteVideo.load();
                     remoteVideo.play()
                     .then(() => {
-                        statusText.innerText = "البث المباشر يعمل الآن بنجاح! شاهد تحركات المضيف ثانية بثانية.";
+                        statusText.innerText = "البث المباشر يعمل الآن بنجاح!";
                     })
                     .catch(() => {
-                        statusText.innerText = "انقر فوق صندوق العرض بالأسفل لتفعيل وتنشيط الصوت والصورة فوراً.";
+                        statusText.innerText = "انقر هنا لتنشيط الشاشة والصوت يدوياً وتخطي حظر المتصفح.";
                     });
                 }
             };
@@ -166,11 +170,15 @@
             await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
             const answerDescription = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answerDescription);
+            
             await update(ref(db, `rooms/${roomId}`), {
                 answer: { type: answerDescription.type, sdp: answerDescription.sdp }
             });
+
             onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snapshot) => {
-                if (snapshot.exists()) peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(()=>{});
+                if (snapshot.exists() && peerConnection) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(()=>{});
+                }
             });
         }
 
@@ -179,7 +187,7 @@
             show.classList.add('active');
         }
 
-        // حل احتياطي: الضغط على أي مكان في الجسم يفعل تشغيل مشغلات الفيديو المقفلة تلقائياً
+        // نقرة احتياطية لتشغيل الفيديو المقفل تلقائياً عند الضيف
         document.body.addEventListener('click', () => {
             if (remoteVideo.srcObject && remoteVideo.paused) {
                 remoteVideo.play().catch(()=>{});
@@ -195,27 +203,22 @@
             --accent-color: #00f2fe;
             --text-color: #ffffff;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
         body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 15px; }
-        .container { width: 100%; max-width: 800px; background: var(--glass-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 25px; text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.6); }
+        .container { width: 100%; max-width: 800px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 25px; text-align: center; }
         h1 { font-size: 1.5rem; margin-bottom: 20px; }
         .screen { display: none; }
         .screen.active { display: block; }
-        .btn { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border: none; color: white; padding: 14px 24px; font-size: 1rem; font-weight: bold; border-radius: 12px; cursor: pointer; width: 100%; margin-top: 15px; box-shadow: 0 4px 15px rgba(0, 242, 254, 0.2); }
-        .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0, 242, 254, 0.3); }
+        .btn { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border: none; color: white; padding: 14px 24px; font-size: 1rem; font-weight: bold; border-radius: 12px; cursor: pointer; width: 100%; margin-top: 15px; }
         .btn-secondary { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border); }
         .divider { margin: 20px 0; color: #7f8c8d; font-size: 0.85rem; display: flex; align-items: center; gap: 10px; }
         .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
         input { width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); padding: 14px; border-radius: 12px; color: white; font-size: 1rem; text-align: center; outline: none; }
         .status { font-size: 0.85rem; color: #cbd5e1; margin: 15px 0; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); line-height: 1.4; }
         .control-box { background: rgba(0, 0, 0, 0.2); padding: 15px; border-radius: 16px; margin-bottom: 15px; display: none; border: 1px solid rgba(0, 242, 254, 0.15); }
-        
-        /* مربع السينما والعرض */
-        #view-container { width: 100%; margin-top: 20px; border-radius: 16px; overflow: hidden; background: #000000; aspect-ratio: 16/10; border: 1px solid var(--glass-border); position: relative; box-shadow: 0 15px 40px rgba(0,0,0,0.5); }
+        #view-container { width: 100%; margin-top: 20px; border-radius: 16px; overflow: hidden; background: #000000; aspect-ratio: 16/10; border: 1px solid var(--glass-border); position: relative; }
         iframe { width: 100%; height: 100%; border: none; background: #ffffff; display: none; }
-        
-        /* 🛠️ تعديل وسم فيديو الضيف ليكون متجاوباً بالكامل ومفعلاً للتحكم بالصوت */
-        video { width: 100%; height: 100%; object-fit: contain; background: #000000; display: none; }
+        video { width: 100%; height: 100%; object-fit: contain; background: #000000; }
     </style>
 </head>
 <body>
@@ -231,7 +234,6 @@
 
         <div id="room-screen" class="screen">
             <h1>رقم الغرفة الحالي: <span id="display-room-code" style="color:var(--accent-color); letter-spacing: 2px;">----</span></h1>
-            
             <div id="status-text" class="status">جاري تهيئة قنوات المزامنة...</div>
 
             <div id="host-control-area" class="control-box">
@@ -241,8 +243,7 @@
 
             <div id="view-container">
                 <iframe id="shared-frame" allow="autoplay; encrypted-media; fullscreen"></iframe>
-                
-                <video id="remote-video" autoplay playsinline muted controls></video>
+                <video id="remote-video" autoplay playsinline controls></video>
             </div>
         </div>
     </div>
