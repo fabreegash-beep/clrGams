@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>تطبيق السينما والبث الحي المطور</title>
+    <title>سينما جماعية - دعم 10 أشخاص | بث حي مع صوت فقط</title>
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect, push } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
 
-        // إعدادات Firebase الخاصة بك
+        // إعدادات Firebase
         const firebaseConfig = {
           apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
           authDomain: "my-online-store-34f34.firebaseapp.com",
@@ -23,7 +23,7 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // خوادم STUN/TURN المحسنة
+        // خوادم TURN/STUN
         const iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -47,78 +47,586 @@
             iceCandidatePoolSize: 10
         };
 
-        let peerConnection;
+        // المتغيرات العامة
+        let peerConnections = new Map();
         let localStream;
         let roomId;
-        let isHost = false;
-        let connectionTimeout;
-
+        let userId = Math.random().toString(36).substring(2, 8);
+        let userName = "";
+        let isModerator = false;
+        let isSharingScreen = false;
+        let isSharingAudioOnly = false;
+        let screenStream;
+        let audioOnlyStream;
+        
+        // عناصر DOM
         const welcomeScreen = document.getElementById('welcome-screen');
         const roomScreen = document.getElementById('room-screen');
-        const btnHost = document.getElementById('btn-host');
-        const btnJoin = document.getElementById('btn-join');
+        const btnCreateRoom = document.getElementById('btn-create-room');
+        const btnJoinRoom = document.getElementById('btn-join-room');
         const roomCodeInput = document.getElementById('room-code-input');
+        const userNameInput = document.getElementById('user-name-input');
         const displayRoomCode = document.getElementById('display-room-code');
-        const remoteVideo = document.getElementById('remote-video');
         const statusText = document.getElementById('status-text');
-        const hostControlArea = document.getElementById('host-control-area');
+        const participantsList = document.getElementById('participants-list');
+        const participantsCount = document.getElementById('participants-count');
+        const videoGrid = document.getElementById('video-grid');
+        const btnToggleMic = document.getElementById('btn-toggle-mic');
+        const btnToggleCam = document.getElementById('btn-toggle-cam');
+        const btnShareScreen = document.getElementById('btn-share-screen');
+        const btnShareAudioOnly = document.getElementById('btn-share-audio-only');
+        const btnStopSharing = document.getElementById('btn-stop-sharing');
         const urlInput = document.getElementById('url-input');
         const btnSendUrl = document.getElementById('btn-send-url');
         const sharedFrame = document.getElementById('shared-frame');
-        const connectionStatus = document.getElementById('connection-status');
+        const controlPanel = document.getElementById('control-panel');
+        const moderatorPanel = document.getElementById('moderator-panel');
+        const sharingControls = document.getElementById('sharing-controls');
+        
+        let isMicOn = true;
+        let isCamOn = true;
 
-        // تحديث حالة الاتصال
         function updateStatus(message, isError = false) {
             statusText.innerHTML = message;
             statusText.style.color = isError ? '#ff6b6b' : '#cbd5e1';
-            console.log(`[Status] ${message}`);
+            console.log(`[${new Date().toLocaleTimeString()}] ${message}`);
         }
 
-        // تنظيف الاتصال
-        async function cleanupConnection() {
-            if (connectionTimeout) clearTimeout(connectionTimeout);
-            
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
+        // إنشاء غرفة جديدة
+        btnCreateRoom.addEventListener('click', async () => {
+            userName = userNameInput.value.trim();
+            if (!userName) {
+                updateStatus("⚠️ الرجاء إدخال اسمك أولاً", true);
+                return;
             }
             
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
+            roomId = Math.floor(1000 + Math.random() * 9000).toString();
+            isModerator = true;
+            
+            displayRoomCode.innerText = roomId;
+            switchScreen(welcomeScreen, roomScreen);
+            controlPanel.style.display = "flex";
+            moderatorPanel.style.display = "block";
+            sharingControls.style.display = "flex";
+            
+            updateStatus(`✅ مرحباً ${userName}! تم إنشاء الغرفة بنجاح. شارك الكود: ${roomId} مع أصدقائك`);
+            
+            const roomRef = ref(db, `rooms/${roomId}`);
+            await set(roomRef, {
+                moderator: userId,
+                createdAt: Date.now(),
+                currentUrl: "",
+                sharingMode: "none",
+                participants: {
+                    [userId]: {
+                        name: userName,
+                        userId: userId,
+                        isModerator: true,
+                        joinedAt: Date.now(),
+                        micEnabled: true,
+                        camEnabled: true
+                    }
+                }
+            });
+            
+            onDisconnect(roomRef).remove();
+            await initLocalMedia();
+            listenForParticipants();
+            listenForRequests();
+        });
+        
+        // الانضمام لغرفة
+        btnJoinRoom.addEventListener('click', async () => {
+            userName = userNameInput.value.trim();
+            if (!userName) {
+                updateStatus("⚠️ الرجاء إدخال اسمك أولاً", true);
+                return;
             }
             
-            if (roomId && !isHost) {
-                const guestCandidatesRef = ref(db, `rooms/${roomId}/guestCandidates`);
-                await remove(guestCandidatesRef);
+            roomId = roomCodeInput.value.trim();
+            if (!roomId || roomId.length !== 4) {
+                updateStatus("⚠️ كود الغرفة يجب أن يكون 4 أرقام", true);
+                return;
             }
-        }
-
-        // 1. منطق المضيف (Host)
-        btnHost.addEventListener('click', async () => {
+            
+            updateStatus("🔍 جاري البحث عن الغرفة...");
+            
+            const roomRef = ref(db, `rooms/${roomId}`);
+            const roomSnapshot = await new Promise((resolve) => {
+                onValue(roomRef, resolve, { onlyOnce: true });
+            });
+            
+            if (!roomSnapshot.exists()) {
+                updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
+                return;
+            }
+            
+            switchScreen(welcomeScreen, roomScreen);
+            controlPanel.style.display = "flex";
+            
+            updateStatus(`📡 مرحباً ${userName}! جاري الاتصال بالغرفة...`);
+            
+            const participantRef = ref(db, `rooms/${roomId}/participants/${userId}`);
+            await set(participantRef, {
+                name: userName,
+                userId: userId,
+                isModerator: false,
+                joinedAt: Date.now(),
+                micEnabled: true,
+                camEnabled: true
+            });
+            onDisconnect(participantRef).remove();
+            
+            await initLocalMedia();
+            listenForParticipants();
+            
+            // الاستماع لحالة المشاركة من المشرف
+            onValue(ref(db, `rooms/${roomId}/sharingMode`), (snapshot) => {
+                const mode = snapshot.val();
+                if (mode === 'screen' && !isModerator) {
+                    updateStatus("📺 المشرف يشارك الشاشة الآن");
+                } else if (mode === 'audio' && !isModerator) {
+                    updateStatus("🎵 المشرف يشارك الصوت فقط الآن");
+                } else if (mode === 'none' && !isModerator) {
+                    updateStatus("⏹️ توقفت المشاركة");
+                }
+            });
+        });
+        
+        // تهيئة الوسائط المحلية
+        async function initLocalMedia() {
             try {
-                await cleanupConnection();
-                isHost = true;
-                roomId = Math.floor(1000 + Math.random() * 9000).toString();
-                displayRoomCode.innerText = roomId;
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: true
+                });
                 
-                switchScreen(welcomeScreen, roomScreen);
-                hostControlArea.style.display = "block"; 
-                remoteVideo.style.display = "none";
-                sharedFrame.style.display = "none";
-                updateStatus("✅ تم فتح الغرفة. شارك الكود مع أصدقائك، ثم أضف رابط الموقع وابدأ البث.");
-                
-                // تنظيف الغرفة عند إغلاق المتصفح
-                const roomRef = ref(db, `rooms/${roomId}`);
-                await remove(roomRef);
-                onDisconnect(roomRef).remove();
-                
+                document.getElementById('local-video').srcObject = localStream;
+                updateMediaButtons();
+                updateStatus("✅ تم تشغيل الميكروفون والكاميرا");
             } catch (error) {
-                updateStatus(`❌ خطأ: ${error.message}`, true);
+                updateStatus(`⚠️ لا يمكن الوصول للكاميرا/الميكروفون: ${error.message}`, true);
+            }
+        }
+        
+        // مشاركة الشاشة (صورة + صوت)
+        btnShareScreen.addEventListener('click', async () => {
+            if (!isModerator) {
+                const requestsRef = ref(db, `rooms/${roomId}/requests`);
+                await push(requestsRef, {
+                    type: 'screen_share',
+                    userId: userId,
+                    userName: userName,
+                    timestamp: Date.now()
+                });
+                updateStatus("📨 تم إرسال طلب مشاركة الشاشة إلى المشرف");
+                return;
+            }
+            
+            try {
+                // إيقاف أي مشاركة حالية
+                await stopCurrentSharing();
+                
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { 
+                        frameRate: { ideal: 24, max: 30 },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: true 
+                });
+                
+                isSharingScreen = true;
+                isSharingAudioOnly = false;
+                
+                // تحديث واجهة المستخدم
+                updateSharingUI('screen');
+                
+                // استبدال جميع المسارات في جميع الاتصالات
+                const videoTrack = screenStream.getVideoTracks()[0];
+                const audioTrack = screenStream.getAudioTracks()[0];
+                
+                peerConnections.forEach((pc, id) => {
+                    // استبدال مسار الفيديو
+                    const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (videoSender && videoTrack) {
+                        videoSender.replaceTrack(videoTrack);
+                    }
+                    
+                    // استبدال مسار الصوت
+                    const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (audioSender && audioTrack) {
+                        audioSender.replaceTrack(audioTrack);
+                    } else if (audioTrack) {
+                        pc.addTrack(audioTrack);
+                    }
+                });
+                
+                updateStatus("🖥️ جاري مشاركة الشاشة مع الصوت");
+                update(ref(db, `rooms/${roomId}/sharingMode`), 'screen');
+                
+                videoTrack.onended = () => {
+                    stopCurrentSharing();
+                };
+            } catch (error) {
+                updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, true);
             }
         });
-
-        btnSendUrl.addEventListener('click', async () => {
+        
+        // مشاركة الصوت فقط
+        btnShareAudioOnly.addEventListener('click', async () => {
+            if (!isModerator) {
+                const requestsRef = ref(db, `rooms/${roomId}/requests`);
+                await push(requestsRef, {
+                    type: 'audio_share',
+                    userId: userId,
+                    userName: userName,
+                    timestamp: Date.now()
+                });
+                updateStatus("📨 تم إرسال طلب مشاركة الصوت فقط إلى المشرف");
+                return;
+            }
+            
+            try {
+                // إيقاف أي مشاركة حالية
+                await stopCurrentSharing();
+                
+                // طلب مشاركة الصوت فقط من تبويب المتصفح أو النظام
+                audioOnlyStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: false, // لا فيديو
+                    audio: true  // صوت فقط
+                });
+                
+                isSharingAudioOnly = true;
+                isSharingScreen = false;
+                
+                // تحديث واجهة المستخدم
+                updateSharingUI('audio');
+                
+                // الحصول على مسار الصوت فقط
+                const audioTrack = audioOnlyStream.getAudioTracks()[0];
+                
+                if (audioTrack) {
+                    peerConnections.forEach((pc, id) => {
+                        // إيقاف مسار الفيديو مؤقتاً
+                        const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                        if (videoSender && videoSender.track) {
+                            videoSender.track.enabled = false;
+                        }
+                        
+                        // استبدال مسار الصوت
+                        const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                        if (audioSender) {
+                            audioSender.replaceTrack(audioTrack);
+                        } else {
+                            pc.addTrack(audioTrack);
+                        }
+                    });
+                    
+                    updateStatus("🎵 جاري مشاركة الصوت فقط (الموسيقى أو صوت النظام)");
+                    update(ref(db, `rooms/${roomId}/sharingMode`), 'audio');
+                    
+                    audioTrack.onended = () => {
+                        stopCurrentSharing();
+                    };
+                } else {
+                    throw new Error("لم يتم العثور على مسار صوت");
+                }
+            } catch (error) {
+                updateStatus(`❌ فشل مشاركة الصوت: ${error.message}. تأكد من اختيار تبويب أو نافذة تحتوي على صوت.`, true);
+                // العودة للوضع الطبيعي
+                await stopCurrentSharing();
+            }
+        });
+        
+        // إيقاف جميع أنواع المشاركة
+        btnStopSharing.addEventListener('click', async () => {
+            await stopCurrentSharing();
+        });
+        
+        async function stopCurrentSharing() {
+            // إيقاف تيارات المشاركة
+            if (screenStream) {
+                screenStream.getTracks().forEach(track => track.stop());
+                screenStream = null;
+            }
+            
+            if (audioOnlyStream) {
+                audioOnlyStream.getTracks().forEach(track => track.stop());
+                audioOnlyStream = null;
+            }
+            
+            isSharingScreen = false;
+            isSharingAudioOnly = false;
+            
+            // العودة للوسائط المحلية الأصلية
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                const audioTrack = localStream.getAudioTracks()[0];
+                
+                peerConnections.forEach((pc, id) => {
+                    // استعادة مسار الفيديو
+                    const videoSender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+                    if (videoSender && videoTrack) {
+                        videoSender.replaceTrack(videoTrack);
+                        videoTrack.enabled = isCamOn;
+                    }
+                    
+                    // استعادة مسار الصوت
+                    const audioSender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (audioSender && audioTrack) {
+                        audioSender.replaceTrack(audioTrack);
+                        audioTrack.enabled = isMicOn;
+                    }
+                });
+            }
+            
+            updateSharingUI('none');
+            updateStatus("🛑 تم إيقاف جميع أنواع المشاركة");
+            update(ref(db, `rooms/${roomId}/sharingMode`), 'none');
+        }
+        
+        function updateSharingUI(mode) {
+            if (mode === 'screen') {
+                btnShareScreen.style.display = 'none';
+                btnShareAudioOnly.style.display = 'none';
+                btnStopSharing.style.display = 'flex';
+                btnShareScreen.classList.add('active-sharing');
+                updateStatus("🎬 جاري مشاركة الشاشة مع الصوت...");
+            } else if (mode === 'audio') {
+                btnShareScreen.style.display = 'flex';
+                btnShareAudioOnly.style.display = 'none';
+                btnStopSharing.style.display = 'flex';
+                btnShareAudioOnly.classList.add('active-sharing');
+                updateStatus("🎵 جاري مشاركة الصوت فقط...");
+            } else {
+                btnShareScreen.style.display = 'flex';
+                btnShareAudioOnly.style.display = 'flex';
+                btnStopSharing.style.display = 'none';
+                btnShareScreen.classList.remove('active-sharing');
+                btnShareAudioOnly.classList.remove('active-sharing');
+            }
+        }
+        
+        // الاستماع للمشاركين
+        function listenForParticipants() {
+            const participantsRef = ref(db, `rooms/${roomId}/participants`);
+            
+            onChildAdded(participantsRef, (snapshot) => {
+                const participant = snapshot.val();
+                if (participant.userId !== userId) {
+                    updateStatus(`👤 انضم ${participant.name} إلى الغرفة`);
+                    createPeerConnection(participant.userId);
+                    updateParticipantsList();
+                }
+            });
+            
+            onChildRemoved(participantsRef, (snapshot) => {
+                const participant = snapshot.val();
+                if (participant && participant.userId !== userId) {
+                    updateStatus(`👋 غادر ${participant.name} الغرفة`);
+                    if (peerConnections.has(participant.userId)) {
+                        peerConnections.get(participant.userId).close();
+                        peerConnections.delete(participant.userId);
+                    }
+                    removeVideoElement(participant.userId);
+                    updateParticipantsList();
+                }
+            });
+            
+            onValue(participantsRef, () => {
+                updateParticipantsList();
+            });
+        }
+        
+        // إنشاء اتصال مع مشارك
+        async function createPeerConnection(targetUserId) {
+            const peerConnection = new RTCPeerConnection(iceServers);
+            peerConnections.set(targetUserId, peerConnection);
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+            }
+            
+            peerConnection.ontrack = (event) => {
+                if (!document.getElementById(`video-${targetUserId}`)) {
+                    addVideoElement(targetUserId, event.streams[0]);
+                }
+            };
+            
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) {
+                    const candidateRef = ref(db, `rooms/${roomId}/connections/${userId}_${targetUserId}/candidates`);
+                    push(candidateRef, event.candidate.toJSON());
+                }
+            };
+            
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            
+            const connectionRef = ref(db, `rooms/${roomId}/connections/${userId}_${targetUserId}`);
+            await set(connectionRef, {
+                offer: { type: offer.type, sdp: offer.sdp }
+            });
+            
+            onValue(ref(db, `rooms/${roomId}/connections/${targetUserId}_${userId}/answer`), async (snapshot) => {
+                const answer = snapshot.val();
+                if (answer && peerConnection.signalingState === 'have-local-offer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                }
+            });
+            
+            onChildAdded(ref(db, `rooms/${roomId}/connections/${targetUserId}_${userId}/candidates`), (snapshot) => {
+                if (snapshot.exists() && peerConnection) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(console.error);
+                }
+            });
+            
+            onValue(ref(db, `rooms/${roomId}/connections/${targetUserId}_${userId}/offer`), async (snapshot) => {
+                const offer = snapshot.val();
+                if (offer && peerConnection.signalingState === 'stable') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    await set(ref(db, `rooms/${roomId}/connections/${userId}_${targetUserId}/answer`), {
+                        type: answer.type, sdp: answer.sdp
+                    });
+                }
+            });
+        }
+        
+        function addVideoElement(userId, stream) {
+            const videoContainer = document.createElement('div');
+            videoContainer.className = 'video-container';
+            videoContainer.id = `video-container-${userId}`;
+            
+            const video = document.createElement('video');
+            video.id = `video-${userId}`;
+            video.autoplay = true;
+            video.playsInline = true;
+            video.srcObject = stream;
+            
+            const nameLabel = document.createElement('div');
+            nameLabel.className = 'video-label';
+            
+            const participantsRef = ref(db, `rooms/${roomId}/participants/${userId}`);
+            onValue(participantsRef, (snapshot) => {
+                const participant = snapshot.val();
+                if (participant) {
+                    nameLabel.textContent = participant.name;
+                    if (participant.isModerator) {
+                        nameLabel.innerHTML += ' 👑';
+                    }
+                }
+            }, { onlyOnce: true });
+            
+            videoContainer.appendChild(video);
+            videoContainer.appendChild(nameLabel);
+            videoGrid.appendChild(videoContainer);
+            
+            video.play().catch(console.error);
+        }
+        
+        function removeVideoElement(userId) {
+            const container = document.getElementById(`video-container-${userId}`);
+            if (container) container.remove();
+        }
+        
+        function updateParticipantsList() {
+            const participantsRef = ref(db, `rooms/${roomId}/participants`);
+            onValue(participantsRef, (snapshot) => {
+                const participants = snapshot.val();
+                if (participants) {
+                    const count = Object.keys(participants).length;
+                    participantsCount.textContent = `${count}/10`;
+                    
+                    participantsList.innerHTML = '';
+                    Object.entries(participants).forEach(([id, participant]) => {
+                        const li = document.createElement('li');
+                        li.className = 'participant-item';
+                        li.innerHTML = `
+                            <span>${participant.name} ${participant.isModerator ? '👑' : ''}</span>
+                            <div class="participant-controls">
+                                <span class="mic-indicator">${participant.micEnabled ? '🎤' : '🔇'}</span>
+                                ${isModerator && !participant.isModerator ? `
+                                    <button class="btn-icon" onclick="kickUser('${id}')">🚫</button>
+                                    <button class="btn-icon" onclick="muteUser('${id}')">🔇</button>
+                                ` : ''}
+                            </div>
+                        `;
+                        participantsList.appendChild(li);
+                    });
+                }
+            });
+        }
+        
+        window.kickUser = async (targetUserId) => {
+            if (!isModerator) return;
+            await remove(ref(db, `rooms/${roomId}/participants/${targetUserId}`));
+            updateStatus(`✅ تم طرد المستخدم`);
+        };
+        
+        window.muteUser = async (targetUserId) => {
+            if (!isModerator) return;
+            updateStatus(`🔇 تم كتم صوت المستخدم`);
+        };
+        
+        function listenForRequests() {
+            if (!isModerator) return;
+            
+            const requestsRef = ref(db, `rooms/${roomId}/requests`);
+            onChildAdded(requestsRef, (snapshot) => {
+                const request = snapshot.val();
+                if (request.type === 'screen_share') {
+                    const accept = confirm(`${request.userName} يريد مشاركة الشاشة. هل تسمح؟`);
+                    if (accept) {
+                        set(ref(db, `rooms/${roomId}/permissions/${request.userId}`), { canShareScreen: true });
+                    }
+                    remove(requestsRef);
+                } else if (request.type === 'audio_share') {
+                    const accept = confirm(`${request.userName} يريد مشاركة الصوت فقط. هل تسمح؟`);
+                    if (accept) {
+                        set(ref(db, `rooms/${roomId}/permissions/${request.userId}`), { canShareAudio: true });
+                    }
+                    remove(requestsRef);
+                }
+            });
+        }
+        
+        btnToggleMic.addEventListener('click', () => {
+            if (localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    isMicOn = !isMicOn;
+                    audioTrack.enabled = isMicOn;
+                    btnToggleMic.innerHTML = isMicOn ? '🎤 كتم' : '🔇 إلغاء الكتم';
+                    updateStatus(isMicOn ? "🎤 الميكروفون نشط" : "🔇 تم كتم الميكروفون");
+                    update(ref(db, `rooms/${roomId}/participants/${userId}`), { micEnabled: isMicOn });
+                }
+            }
+        });
+        
+        btnToggleCam.addEventListener('click', () => {
+            if (localStream) {
+                const videoTrack = localStream.getVideoTracks()[0];
+                if (videoTrack) {
+                    isCamOn = !isCamOn;
+                    videoTrack.enabled = isCamOn;
+                    btnToggleCam.innerHTML = isCamOn ? '📹 إيقاف' : '📷 تشغيل';
+                    updateStatus(isCamOn ? "📹 الكاميرا نشطة" : "📷 تم إيقاف الكاميرا");
+                    update(ref(db, `rooms/${roomId}/participants/${userId}`), { camEnabled: isCamOn });
+                }
+            }
+        });
+        
+        btnSendUrl.addEventListener('click', () => {
+            if (!isModerator) {
+                updateStatus("⚠️ فقط المشرف يمكنه مشاركة الروابط", true);
+                return;
+            }
+            
             let url = urlInput.value.trim();
             if (!url) {
                 updateStatus("⚠️ الرجاء إدخال الرابط أولاً", true);
@@ -129,319 +637,400 @@
             
             sharedFrame.src = url;
             sharedFrame.style.display = "block";
-            updateStatus("📺 جاري مشاركة الشاشة...");
-            
-            try {
-                // طلب مشاركة الشاشة
-                localStream = await navigator.mediaDevices.getDisplayMedia({ 
-                    video: {
-                        frameRate: { ideal: 24, max: 30 },
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
-                    audio: true 
-                });
-                
-                updateStatus("🎬 تم البدء في مشاركة الشاشة، جاري إنشاء الاتصال...");
-                await setupWebrtcAsHost();
-                
-                localStream.getTracks().forEach(track => {
-                    peerConnection.addTrack(track, localStream);
-                    updateStatus(`✅ تم إضافة مسار ${track.kind}`);
-                });
-                
-                hostControlArea.style.display = "none";
-                updateStatus("🎉 البث المباشر يعمل الآن! الأصدقاء يمكنهم الانضمام للمشاهدة.");
-                
-                // مراقبة انتهاء مشاركة الشاشة
-                localStream.getVideoTracks()[0].onended = () => {
-                    updateStatus("⚠️ توقفت مشاركة الشاشة. اضغط زر 'بدء بث الموقع' مرة أخرى.", true);
-                    hostControlArea.style.display = "block";
-                    sharedFrame.style.display = "none";
-                };
-                
-            } catch (error) {
-                updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}. تأكد من إعطاء الصلاحية للمتصفح.`, true);
-                hostControlArea.style.display = "block";
+            set(ref(db, `rooms/${roomId}/currentUrl`), url);
+            updateStatus("📺 تم مشاركة الرابط مع جميع المستخدمين");
+        });
+        
+        onValue(ref(db, `rooms/${roomId}/currentUrl`), (snapshot) => {
+            const url = snapshot.val();
+            if (url && !isModerator) {
+                sharedFrame.src = url;
+                sharedFrame.style.display = "block";
             }
         });
-
-        async function setupWebrtcAsHost() {
-            peerConnection = new RTCPeerConnection(iceServers);
-            
-            // مراقبة حالة الاتصال
-            peerConnection.onconnectionstatechange = () => {
-                updateStatus(`🔌 حالة الاتصال: ${peerConnection.connectionState}`);
-                if (peerConnection.connectionState === 'connected') {
-                    updateStatus("✅ البث المباشر متصل بنجاح!");
-                } else if (peerConnection.connectionState === 'failed') {
-                    updateStatus("❌ فشل الاتصال. حاول مرة أخرى.", true);
-                }
-            };
-            
-            peerConnection.oniceconnectionstatechange = () => {
-                updateStatus(`❄️ حالة ICE: ${peerConnection.iceConnectionState}`);
-            };
-            
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    const candidateRef = ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}`);
-                    set(candidateRef, event.candidate.toJSON());
-                }
-            };
-            
-            peerConnection.onnegotiationneeded = async () => {
-                try {
-                    await peerConnection.setLocalDescription(await peerConnection.createOffer());
-                    await update(ref(db, `rooms/${roomId}`), {
-                        offer: { type: peerConnection.localDescription.type, sdp: peerConnection.localDescription.sdp }
-                    });
-                } catch (error) {
-                    console.error("Negotiation error:", error);
-                }
-            };
-            
-            // الاستماع لإجابات الضيف
-            onValue(ref(db, `rooms/${roomId}/answer`), (snapshot) => {
-                const answer = snapshot.val();
-                if (answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
-                    peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
-                        .then(() => updateStatus("✅ تم استلام رد الضيف"))
-                        .catch(console.error);
-                }
-            });
-            
-            // الاستماع لمرشحات الضيف
-            onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snapshot) => {
-                if (snapshot.exists() && peerConnection) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-                        .catch(console.error);
-                }
-            });
+        
+        function updateMediaButtons() {
+            btnToggleMic.innerHTML = '🎤 كتم';
+            btnToggleCam.innerHTML = '📹 إيقاف';
         }
-
-        // 2. منطق الضيف (Guest)
-        btnJoin.addEventListener('click', async () => {
-            try {
-                await cleanupConnection();
-                isHost = false;
-                roomId = roomCodeInput.value.trim();
-                
-                if (!roomId || roomId.length !== 4) {
-                    updateStatus("⚠️ كود الغرفة يجب أن يكون 4 أرقام", true);
-                    return;
-                }
-                
-                updateStatus("🔍 جاري البحث عن الغرفة...");
-                
-                // التحقق من وجود الغرفة
-                const roomSnapshot = await new Promise((resolve) => {
-                    onValue(ref(db, `rooms/${roomId}`), resolve, { onlyOnce: true });
-                });
-                
-                if (!roomSnapshot.exists()) {
-                    updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
-                    return;
-                }
-                
-                switchScreen(welcomeScreen, roomScreen);
-                displayRoomCode.innerText = roomId;
-                sharedFrame.style.display = "none";
-                remoteVideo.style.display = "block";
-                
-                updateStatus("📡 جاري الاتصال بالبث...");
-                await setupWebrtcAsGuest();
-                
-            } catch (error) {
-                updateStatus(`❌ خطأ: ${error.message}`, true);
-            }
-        });
-
-        async function setupWebrtcAsGuest() {
-            peerConnection = new RTCPeerConnection(iceServers);
-            
-            peerConnection.ontrack = (event) => {
-                updateStatus("📹 تم استلام البث، جاري التشغيل...");
-                if (event.streams && event.streams[0]) {
-                    remoteVideo.srcObject = event.streams[0];
-                    
-                    // محاولة التشغيل التلقائي
-                    remoteVideo.play().then(() => {
-                        updateStatus("🎬 البث المباشر يعمل الآن بنجاح!");
-                        connectionStatus.style.background = "#00ff0022";
-                    }).catch((error) => {
-                        updateStatus("⚠️ انقر على الفيديو لبدء التشغيل (سياسة المتصفح)", true);
-                        remoteVideo.controls = true;
-                    });
-                }
-            };
-            
-            peerConnection.onconnectionstatechange = () => {
-                updateStatus(`🔌 حالة الاتصال: ${peerConnection.connectionState}`);
-                if (peerConnection.connectionState === 'connected') {
-                    updateStatus("✅ تم الاتصال بالبث بنجاح!");
-                } else if (peerConnection.connectionState === 'failed') {
-                    updateStatus("❌ فشل الاتصال. تأكد من اتصال المضيف بالإنترنت.", true);
-                }
-            };
-            
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    const candidateRef = ref(db, `rooms/${roomId}/guestCandidates/${Date.now()}`);
-                    set(candidateRef, event.candidate.toJSON());
-                }
-            };
-            
-            // الاستماع لعرض المضيف
-            onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
-                const offer = snapshot.val();
-                if (offer && peerConnection && peerConnection.signalingState === 'stable') {
-                    try {
-                        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                        const answer = await peerConnection.createAnswer();
-                        await peerConnection.setLocalDescription(answer);
-                        await update(ref(db, `rooms/${roomId}`), {
-                            answer: { type: answer.type, sdp: answer.sdp }
-                        });
-                        updateStatus("✅ تم إرسال الرد إلى المضيف");
-                    } catch (error) {
-                        console.error("Error handling offer:", error);
-                    }
-                }
-            });
-            
-            // الاستماع لمرشحات المضيف
-            onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snapshot) => {
-                if (snapshot.exists() && peerConnection) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-                        .catch(console.error);
-                }
-            });
-            
-            // طلب العرض الحالي إذا كان موجوداً
-            const offerSnapshot = await new Promise((resolve) => {
-                onValue(ref(db, `rooms/${roomId}/offer`), resolve, { onlyOnce: true });
-            });
-            
-            if (offerSnapshot.exists() && peerConnection.signalingState === 'stable') {
-                const offer = offerSnapshot.val();
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                await update(ref(db, `rooms/${roomId}`), {
-                    answer: { type: answer.type, sdp: answer.sdp }
-                });
-                updateStatus("✅ تم إرسال الرد إلى المضيف");
-            }
-        }
-
+        
         function switchScreen(hide, show) {
             hide.classList.remove('active');
             show.classList.add('active');
         }
-
-        // دعم إعادة المحاولة عند انقطاع الاتصال
-        async function reconnectAsGuest() {
-            if (!isHost && roomId) {
-                updateStatus("🔄 جاري إعادة المحاولة...");
-                await cleanupConnection();
-                setTimeout(() => setupWebrtcAsGuest(), 2000);
-            }
-        }
-
-        // إضافة زر إعادة المحاولة
-        const reconnectBtn = document.createElement('button');
-        reconnectBtn.textContent = '🔄 إعادة المحاولة';
-        reconnectBtn.className = 'btn btn-secondary';
-        reconnectBtn.style.marginTop = '10px';
-        reconnectBtn.style.display = 'none';
-        reconnectBtn.onclick = reconnectAsGuest;
-        document.querySelector('#room-screen .status').after(reconnectBtn);
         
-        // إظهار زر إعادة المحاولة عند فشل الاتصال
-        const originalUpdateStatus = updateStatus;
-        window.updateStatus = function(message, isError) {
-            originalUpdateStatus(message, isError);
-            if (isError && !isHost && reconnectBtn) {
-                reconnectBtn.style.display = 'block';
-            } else if (reconnectBtn) {
-                reconnectBtn.style.display = 'none';
-            }
-        };
-        
-        updateStatus = window.updateStatus;
-        
-        // نقرة احتياطية لتشغيل الفيديو
-        document.body.addEventListener('click', () => {
-            if (remoteVideo.srcObject && remoteVideo.paused) {
-                remoteVideo.play().catch(() => {});
+        window.addEventListener('beforeunload', async () => {
+            if (roomId) {
+                await remove(ref(db, `rooms/${roomId}/participants/${userId}`));
+                if (localStream) {
+                    localStream.getTracks().forEach(track => track.stop());
+                }
+                await stopCurrentSharing();
             }
         });
         
-        console.log("✅ التطبيق جاهز للعمل");
+        updateStatus("🎬 مرحباً! أدخل اسمك لبدء المغامرة");
     </script>
 
     <style>
         :root {
             --bg-gradient: linear-gradient(135deg, #060913, #131a35, #060913);
-            --glass-bg: rgba(255, 255, 255, 0.03);
-            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
             --accent-color: #00f2fe;
             --text-color: #ffffff;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
-        body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 15px; }
-        .container { width: 100%; max-width: 900px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 25px; text-align: center; }
-        h1 { font-size: 1.5rem; margin-bottom: 20px; }
-        .screen { display: none; }
-        .screen.active { display: block; }
-        .btn { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border: none; color: white; padding: 14px 24px; font-size: 1rem; font-weight: bold; border-radius: 12px; cursor: pointer; width: 100%; margin-top: 15px; transition: transform 0.2s, opacity 0.2s; }
-        .btn:hover { transform: translateY(-2px); opacity: 0.9; }
-        .btn-secondary { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border); }
-        .divider { margin: 20px 0; color: #7f8c8d; font-size: 0.85rem; display: flex; align-items: center; gap: 10px; }
-        .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
-        input { width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); padding: 14px; border-radius: 12px; color: white; font-size: 1rem; text-align: center; outline: none; transition: border-color 0.2s; }
-        input:focus { border-color: var(--accent-color); }
-        .status { font-size: 0.85rem; color: #cbd5e1; margin: 15px 0; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); line-height: 1.4; }
-        .control-box { background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 16px; margin-bottom: 15px; display: none; border: 1px solid rgba(0, 242, 254, 0.2); }
-        #view-container { width: 100%; margin-top: 20px; border-radius: 16px; overflow: hidden; background: #000000; aspect-ratio: 16/9; border: 1px solid var(--glass-border); position: relative; }
-        iframe { width: 100%; height: 100%; border: none; background: #ffffff; display: none; }
-        video { width: 100%; height: 100%; object-fit: contain; background: #000000; }
-        #connection-status { position: fixed; bottom: 10px; right: 10px; padding: 5px 10px; border-radius: 8px; font-size: 12px; background: rgba(0,0,0,0.7); }
-        @media (max-width: 600px) {
-            .container { padding: 15px; }
-            h1 { font-size: 1.2rem; }
-            .btn { padding: 10px 20px; }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: var(--bg-gradient);
+            min-height: 100vh;
+            color: var(--text-color);
+            padding: 20px;
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 20px;
+        }
+        
+        .screen {
+            display: none;
+        }
+        
+        .screen.active {
+            display: block;
+        }
+        
+        .welcome-box {
+            max-width: 500px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #00f2fe, #4facfe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .subtitle {
+            color: #8892b0;
+            margin-bottom: 30px;
+        }
+        
+        input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--glass-border);
+            padding: 12px;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            margin-bottom: 15px;
+            direction: ltr;
+        }
+        
+        .btn {
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            border: none;
+            color: white;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 12px;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--glass-border);
+        }
+        
+        .divider {
+            margin: 20px 0;
+            color: #7f8c8d;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .divider::before,
+        .divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .room-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .room-code {
+            background: rgba(0, 242, 254, 0.2);
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid var(--accent-color);
+        }
+        
+        .status {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9rem;
+        }
+        
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 20px;
+        }
+        
+        .video-section {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            padding: 15px;
+        }
+        
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+        }
+        
+        .video-container video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .video-label {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        
+        .control-panel {
+            display: none;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .sharing-controls {
+            display: none;
+            gap: 10px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--glass-border);
+        }
+        
+        .btn-icon {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--glass-border);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        
+        .btn-icon:hover {
+            background: var(--accent-color);
+            transform: translateY(-2px);
+        }
+        
+        .btn-icon.active-sharing {
+            background: #00ff00;
+            color: #000;
+            border-color: #00ff00;
+        }
+        
+        .participants-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            padding: 15px;
+        }
+        
+        .participants-panel h3 {
+            margin-bottom: 15px;
+            font-size: 1.1rem;
+        }
+        
+        .participants-list {
+            list-style: none;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .participant-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+        }
+        
+        .participant-controls {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .shared-frame-container {
+            margin-top: 20px;
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            aspect-ratio: 16/9;
+        }
+        
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            display: none;
+        }
+        
+        .url-input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .url-input-group input {
+            flex: 1;
+            margin-bottom: 0;
+        }
+        
+        .url-input-group button {
+            width: auto;
+            padding: 12px 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+            
+            .video-grid {
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            }
         }
     </style>
 </head>
 <body>
-
     <div class="container">
         <div id="welcome-screen" class="screen active">
-            <h1>🎬 غرفة البث المباشر والسينما الجماعية</h1>
-            <button id="btn-host" class="btn">🚀 فتح غرفة بث جديدة (المضيف)</button>
-            <div class="divider">أو انضم إلى صديقك للمشاهدة</div>
-            <input type="number" id="room-code-input" placeholder="📱 أدخل كود الغرفة (4 أرقام)">
-            <button id="btn-join" class="btn btn-secondary">👥 دخول لمشاهدة البث</button>
-        </div>
-
-        <div id="room-screen" class="screen">
-            <h1>🏠 رقم الغرفة: <span id="display-room-code" style="color:var(--accent-color); letter-spacing: 2px;">----</span></h1>
-            <div id="status-text" class="status">⚙️ جاري تهيئة قنوات المزامنة...</div>
-
-            <div id="host-control-area" class="control-box">
-                <input type="text" id="url-input" placeholder="🔗 ألصق رابط الموقع هنا للتصفح والبث المباشر" style="direction: ltr;">
-                <button id="btn-send-url" class="btn" style="margin-top: 10px;">🎥 بدء بث الموقع</button>
+            <div class="welcome-box">
+                <h1>🎬 سينما جماعية</h1>
+                <p class="subtitle">شاهد مع أصدقائك - دعم حتى 10 أشخاص</p>
+                
+                <input type="text" id="user-name-input" placeholder="👤 أدخل اسمك">
+                <button id="btn-create-room" class="btn">🚀 إنشاء غرفة جديدة</button>
+                
+                <div class="divider">أو</div>
+                
+                <input type="number" id="room-code-input" placeholder="🔑 كود الغرفة (4 أرقام)">
+                <button id="btn-join-room" class="btn btn-secondary">👥 انضم إلى غرفة</button>
             </div>
-
-            <div id="view-container">
+        </div>
+        
+        <div id="room-screen" class="screen">
+            <div class="room-header">
+                <div class="room-code">
+                    🏠 كود الغرفة: <strong id="display-room-code">----</strong>
+                </div>
+                <div id="participants-count" class="room-code">👥 0/10</div>
+            </div>
+            
+            <div id="status-text" class="status">⚙️ جاري التهيئة...</div>
+            
+            <div class="main-layout">
+                <div class="video-section">
+                    <div class="video-grid" id="video-grid">
+                        <div class="video-container">
+                            <video id="local-video" autoplay playsinline muted></video>
+                            <div class="video-label">أنت</div>
+                        </div>
+                    </div>
+                    
+                    <div class="control-panel" id="control-panel">
+                        <button id="btn-toggle-mic" class="btn-icon">🎤 كتم</button>
+                        <button id="btn-toggle-cam" class="btn-icon">📹 إيقاف</button>
+                    </div>
+                    
+                    <div class="sharing-controls" id="sharing-controls">
+                        <button id="btn-share-screen" class="btn-icon">🖥️ مشاركة شاشة + صوت</button>
+                        <button id="btn-share-audio-only" class="btn-icon">🎵 مشاركة صوت فقط</button>
+                        <button id="btn-stop-sharing" class="btn-icon" style="display:none;">🛑 إيقاف المشاركة</button>
+                    </div>
+                </div>
+                
+                <div class="participants-panel">
+                    <h3>📋 المشاركين</h3>
+                    <ul class="participants-list" id="participants-list">
+                        <li style="color:#8892b0;">جاري التحميل...</li>
+                    </ul>
+                    
+                    <div id="moderator-panel" style="display:none; margin-top: 20px;">
+                        <h3>🎬 التحكم بالمشاهدة</h3>
+                        <div class="url-input-group">
+                            <input type="text" id="url-input" placeholder="🔗 رابط الفيديو أو الموقع">
+                            <button id="btn-send-url" class="btn-icon">📺 مشاركة</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="shared-frame-container">
                 <iframe id="shared-frame" allow="autoplay; encrypted-media; fullscreen"></iframe>
-                <video id="remote-video" autoplay playsinline controls></video>
             </div>
         </div>
     </div>
-    <div id="connection-status">🟢 جاهز</div>
-
 </body>
 </html>
