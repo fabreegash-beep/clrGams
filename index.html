@@ -23,14 +23,17 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // 🛠️ التحديث الجوهري: خوادم متطورة ومفتوحة لإنهاء مشكلة الشاشة الرمادية واختراق حظر الشبكات
+        // 🛠️ تم التحديث هنا: إضافة الخوادم العالمية الجديدة لحل مشكلة تعليق الاتصال "جاري الاتصال..." عند الضيف
         const iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:relay.metered.ca:80' }, // خادم ترحيل مجاني للمساعدة في الربط الصعب
-                { urls: 'stun:stun.nextcloud.com:443' }
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:stun.ekiga.net' },
+                { urls: 'stun:stun.ideasip.com' },
+                { urls: 'stun:stun.schlund.de' }
             ],
             iceTransportPolicy: 'all'
         };
@@ -85,7 +88,7 @@
 
             try {
                 localStream = await navigator.mediaDevices.getDisplayMedia({ 
-                    video: { frameRate: 24, width: { max: 1280 }, height: { max: 720 } }, // تقليل الجودة قليلاً لسرعة الربط
+                    video: { frameRate: 24, width: { max: 1280 }, height: { max: 720 } },
                     audio: true 
                 });
                 
