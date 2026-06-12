@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>سينما لايف - بث جماعي مع عدة ضيوف</title>
+    <title>سينما لايف - بث جماعي مع صوت الجهاز</title>
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect, push } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
 
         // إعدادات Firebase
         const firebaseConfig = {
@@ -23,7 +23,7 @@
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
 
-        // خوادم STUN/TURN المحسنة
+        // خوادم STUN/TURN
         const iceServers = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -41,19 +41,26 @@
                     urls: 'turn:relay.metered.ca:443',
                     username: 'b12f3d7f4a5c3e8d9f0a1b2c',
                     credential: 'd4e5f6g7h8i9j0k1l2m3'
+                },
+                {
+                    urls: 'turn:relay.metered.ca:80?transport=tcp',
+                    username: 'b12f3d7f4a5c3e8d9f0a1b2c',
+                    credential: 'd4e5f6g7h8i9j0k1l2m3'
                 }
             ],
             iceTransportPolicy: 'all',
             iceCandidatePoolSize: 10
         };
 
-        let peerConnections = {};  // تخزين اتصالات متعددة لكل ضيف
-        let localStream;
+        let peerConnections = {};
+        let videoStream = null;      // تيار الشاشة
+        let audioStream = null;      // تيار الصوت
         let roomId;
         let isHost = false;
         let viewerName = '';
         let viewersList = {};
 
+        // عناصر DOM
         const welcomeScreen = document.getElementById('welcome-screen');
         const roomScreen = document.getElementById('room-screen');
         const nameScreen = document.getElementById('name-screen');
@@ -112,10 +119,35 @@
             }
         }
 
+        // إضافة المسارات لجميع الاتصالات
+        async function addTracksToAllConnections(tracks, stream) {
+            for (let viewerId in peerConnections) {
+                const pc = peerConnections[viewerId];
+                tracks.forEach(track => {
+                    pc.addTrack(track, stream);
+                });
+                // إعادة التفاوض
+                try {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    await update(ref(db, `rooms/${roomId}/offers/${viewerId}`), {
+                        type: offer.type,
+                        sdp: offer.sdp
+                    });
+                } catch (error) {
+                    console.error("Negotiation error for", viewerId, error);
+                }
+            }
+        }
+
         async function cleanupConnection() {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
             }
             
             for (let viewerId in peerConnections) {
@@ -131,7 +163,7 @@
             }
         }
 
-        // المضيف - إنشاء اتصال لكل ضيف جديد
+        // المضيف
         btnHost.addEventListener('click', async () => {
             try {
                 await cleanupConnection();
@@ -154,17 +186,15 @@
                 });
                 onDisconnect(roomRef).remove();
                 
-                // الاستماع للمشاهدين الجدد وإنشاء اتصال لكل منهم
+                // الاستماع للمشاهدين الجدد
                 onChildAdded(ref(db, `rooms/${roomId}/viewers`), async (snapshot) => {
                     const viewerId = snapshot.key;
                     const viewer = snapshot.val();
                     
-                    if (viewerId !== 'host' && viewerId !== viewerName) {
+                    if (viewerId !== 'host' && viewerId !== viewerName && viewerId !== 'undefined') {
                         viewersList[viewerId] = viewer;
                         updateViewersList();
                         addChatMessage('النظام', `انضم ${viewer.name} إلى الغرفة`, true);
-                        
-                        // إنشاء اتصال جديد لكل ضيف
                         await createConnectionForGuest(viewerId);
                     }
                 });
@@ -175,8 +205,12 @@
                     const viewerId = snapshot.key;
                     
                     if (peerConnections[viewerId] && peerConnections[viewerId].signalingState === 'have-local-offer') {
-                        await peerConnections[viewerId].setRemoteDescription(new RTCSessionDescription(answer));
-                        updateStatus(`✅ تم اتصال الضيف ${viewersList[viewerId]?.name || viewerId}`);
+                        try {
+                            await peerConnections[viewerId].setRemoteDescription(new RTCSessionDescription(answer));
+                            updateStatus(`✅ تم اتصال ${viewersList[viewerId]?.name || viewerId}`);
+                        } catch (e) {
+                            console.error("Error setting remote description:", e);
+                        }
                     }
                 });
                 
@@ -203,15 +237,19 @@
             }
         });
         
-        // إنشاء اتصال لكل ضيف جديد
         async function createConnectionForGuest(viewerId) {
             const pc = new RTCPeerConnection(iceServers);
             peerConnections[viewerId] = pc;
             
-            // إضافة المسارات المحلية
-            if (localStream) {
-                localStream.getTracks().forEach(track => {
-                    pc.addTrack(track, localStream);
+            // إضافة المسارات الموجودة
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => {
+                    pc.addTrack(track, videoStream);
+                });
+            }
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => {
+                    pc.addTrack(track, audioStream);
                 });
             }
             
@@ -237,17 +275,23 @@
             
             pc.onconnectionstatechange = () => {
                 if (pc.connectionState === 'connected') {
-                    updateStatus(`✅ تم اتصال ضيف جديد: ${viewersList[viewerId]?.name || viewerId}`);
+                    updateStatus(`✅ تم اتصال ${viewersList[viewerId]?.name || viewerId}`);
+                } else if (pc.connectionState === 'failed') {
+                    updateStatus(`❌ فشل اتصال ${viewersList[viewerId]?.name || viewerId}`, true);
                 }
+            };
+            
+            pc.ontrack = (event) => {
+                console.log("Track received on host side:", event.track.kind);
             };
         }
 
-        // بدء بث الشاشة
+        // مشاركة الشاشة
         btnShareScreen.addEventListener('click', async () => {
             updateStatus("🖥️ جاري مشاركة الشاشة...");
             
             try {
-                localStream = await navigator.mediaDevices.getDisplayMedia({ 
+                videoStream = await navigator.mediaDevices.getDisplayMedia({ 
                     video: {
                         frameRate: { ideal: 30, max: 60 },
                         width: { ideal: 1920, max: 1920 },
@@ -259,27 +303,16 @@
                 isScreenSharing = true;
                 updateStatus("✅ تم مشاركة الشاشة بنجاح!");
                 
-                // إضافة المسار لجميع الاتصالات الموجودة
-                for (let viewerId in peerConnections) {
-                    const pc = peerConnections[viewerId];
-                    localStream.getTracks().forEach(track => {
-                        pc.addTrack(track, localStream);
-                    });
-                    // إعادة التفاوض
-                    const offer = await pc.createOffer();
-                    await pc.setLocalDescription(offer);
-                    await update(ref(db, `rooms/${roomId}/offers/${viewerId}`), {
-                        type: offer.type,
-                        sdp: offer.sdp
-                    });
-                }
+                await addTracksToAllConnections(videoStream.getVideoTracks(), videoStream);
                 
                 btnShareScreen.textContent = "✅ الشاشة قيد البث";
+                btnShareScreen.style.background = "linear-gradient(90deg, #11998e, #38ef7d)";
                 
-                localStream.getVideoTracks()[0].onended = () => {
+                videoStream.getVideoTracks()[0].onended = () => {
                     updateStatus("⚠️ توقفت مشاركة الشاشة", true);
                     isScreenSharing = false;
                     btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
+                    btnShareScreen.style.background = "linear-gradient(90deg, #4facfe 0%, #00f2fe 100%)";
                 };
                 
             } catch (error) {
@@ -287,58 +320,67 @@
             }
         });
 
-        // تشغيل صوت الجهاز
+        // مشاركة صوت الجهاز - الطريقة الصحيحة
         btnShareAudio.addEventListener('click', async () => {
             if (isAudioSharing) {
-                updateStatus("🔇 تم إيقاف صوت الجهاز");
+                // إيقاف الصوت
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                    audioStream = null;
+                }
                 isAudioSharing = false;
                 btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
+                btnShareAudio.style.background = "linear-gradient(90deg, #f093fb, #f5576c)";
+                updateStatus("🔇 تم إيقاف صوت الجهاز");
                 return;
             }
             
-            updateStatus("🎵 جاري تشغيل صوت الجهاز...");
+            updateStatus("🎵 جاري تشغيل صوت الجهاز... تأكد من اختيار 'مشاركة الصوت' في النافذة المنبثقة");
             
             try {
-                const tempStream = await navigator.mediaDevices.getDisplayMedia({ 
-                    video: { width: 1, height: 1, frameRate: 1 },
-                    audio: true
+                // الطريقة الصحيحة لمشاركة صوت الجهاز
+                // نستخدم getDisplayMedia مع شاشة صغيرة جداً للحصول على الصوت
+                const displayStream = await navigator.mediaDevices.getDisplayMedia({ 
+                    video: {
+                        width: { exact: 1 },
+                        height: { exact: 1 }
+                    },
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    }
                 });
                 
-                const audioTrack = tempStream.getAudioTracks()[0];
+                const audioTrack = displayStream.getAudioTracks()[0];
                 
                 if (audioTrack) {
-                    if (!localStream) {
-                        localStream = new MediaStream();
-                    }
-                    localStream.addTrack(audioTrack);
-                    
-                    // إضافة الصوت لجميع الاتصالات
-                    for (let viewerId in peerConnections) {
-                        const pc = peerConnections[viewerId];
-                        pc.addTrack(audioTrack, localStream);
-                        const offer = await pc.createOffer();
-                        await pc.setLocalDescription(offer);
-                        await update(ref(db, `rooms/${roomId}/offers/${viewerId}`), {
-                            type: offer.type,
-                            sdp: offer.sdp
-                        });
-                    }
+                    audioStream = new MediaStream();
+                    audioStream.addTrack(audioTrack);
                     
                     isAudioSharing = true;
-                    updateStatus("🎵 تم تشغيل صوت الجهاز!");
+                    
+                    // إضافة الصوت لجميع الاتصالات
+                    await addTracksToAllConnections([audioTrack], audioStream);
+                    
+                    updateStatus("🎵 تم تشغيل صوت الجهاز بنجاح! الضيوف الآن يسمعون صوت جهازك.");
                     btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
+                    btnShareAudio.style.background = "linear-gradient(90deg, #ff416c, #ff4b2b)";
                     
                     audioTrack.onended = () => {
                         updateStatus("⚠️ توقف صوت الجهاز", true);
                         isAudioSharing = false;
                         btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
+                        btnShareAudio.style.background = "linear-gradient(90deg, #f093fb, #f5576c)";
+                        audioStream = null;
                     };
+                } else {
+                    updateStatus("❌ لم يتم العثور على مسار صوت. تأكد من اختيار 'مشاركة الصوت' في النافذة.", true);
+                    displayStream.getTracks().forEach(track => track.stop());
                 }
                 
-                tempStream.getVideoTracks().forEach(track => track.stop());
-                
             } catch (error) {
-                updateStatus(`❌ فشل تشغيل الصوت: ${error.message}`, true);
+                updateStatus(`❌ فشل تشغيل الصوت: ${error.message}. تأكد من أن متصفحك يدعم مشاركة الصوت (Chrome مستحسن).`, true);
             }
         });
 
@@ -402,6 +444,13 @@
                     if (msg) addChatMessage(msg.name, msg.message);
                 });
                 
+                onValue(ref(db, `rooms/${roomId}/viewers`), (snapshot) => {
+                    if (snapshot.exists()) {
+                        viewersList = snapshot.val();
+                        updateViewersList();
+                    }
+                });
+                
                 addChatMessage('النظام', `مرحباً ${viewerName} في الغرفة`, true);
                 
             } catch (error) {
@@ -413,6 +462,7 @@
             const pc = new RTCPeerConnection(iceServers);
             
             pc.ontrack = (event) => {
+                console.log("Received track:", event.track.kind);
                 if (event.streams && event.streams[0]) {
                     if (remoteVideo.srcObject) {
                         const existingStream = remoteVideo.srcObject;
@@ -423,12 +473,12 @@
                         remoteVideo.srcObject = event.streams[0];
                     }
                     
-                    remoteVideo.play().then(() => {
-                        const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
-                        updateStatus(`🎬 تم الاتصال!${hasAudio ? ' يتم سماع الصوت.' : ''}`);
-                    }).catch(() => {
-                        updateStatus("⚠️ انقر على الفيديو للتشغيل", true);
-                    });
+                    if (event.track.kind === 'video') {
+                        remoteVideo.play().catch(() => {});
+                    }
+                    
+                    const hasAudio = remoteVideo.srcObject?.getAudioTracks().length > 0;
+                    updateStatus(`🎬 تم الاتصال!${hasAudio ? ' يتم سماع صوت الجهاز.' : ''}`);
                 }
             };
             
@@ -439,7 +489,7 @@
                 }
             };
             
-            // الاستماع لعرض المضيف الخاص بهذا الضيف
+            // الاستماع لعرض المضيف
             onValue(ref(db, `rooms/${roomId}/offers/${viewerName}`), async (snapshot) => {
                 const offer = snapshot.val();
                 if (offer && pc.signalingState === 'stable') {
@@ -467,7 +517,6 @@
             });
         }
 
-        // إرسال رسالة
         btnSendChat.addEventListener('click', async () => {
             const message = chatInput.value.trim();
             if (!message) return;
@@ -497,7 +546,7 @@
             }
         });
         
-        console.log("✅ التطبيق جاهز - يدعم عدة ضيوف في نفس الوقت!");
+        console.log("✅ التطبيق جاهز - صوت الجهاز يعمل!");
     </script>
 
     <style>
@@ -552,15 +601,16 @@
         
         .host-only { display: block; }
         .info-text { font-size: 0.8rem; color: #888; margin-top: 10px; }
+        .divider { margin: 20px 0; text-align: center; color: #888; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <div id="welcome-screen" class="screen active">
-            <h1>🎬 سينما لايف - بث جماعي لعدة ضيوف</h1>
+            <h1>🎬 سينما لايف - بث جماعي مع صوت الجهاز</h1>
             <button id="btn-host" class="btn">🚀 إنشاء غرفة بث (مضيف)</button>
-            <div class="divider" style="margin: 20px 0;">أو</div>
+            <div class="divider">أو</div>
             <input type="number" id="room-code-input" placeholder="📱 كود الغرفة (4 أرقام)">
             <button id="btn-join" class="btn btn-secondary">👥 انضم كمشاهد</button>
         </div>
@@ -590,7 +640,12 @@
                             <button id="btn-share-screen" class="btn btn-success">🖥️ مشاركة الشاشة</button>
                             <button id="btn-share-audio" class="btn btn-warning">🎵 تشغيل صوت الجهاز</button>
                         </div>
-                        <div class="info-text">💡 نصيحة: شارك الشاشة أولاً، ثم شغّل الصوت</div>
+                        <div class="info-text">
+                            💡 نصيحة مهمة: 
+                            <br>1. شارك الشاشة أولاً
+                            <br>2. ثم اضغط "تشغيل صوت الجهاز"
+                            <br>3. في النافذة المنبثقة، تأكد من تفعيل خيار "مشاركة الصوت" أو "Share audio"
+                        </div>
                     </div>
                 </div>
                 
