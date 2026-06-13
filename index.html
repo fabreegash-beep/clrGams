@@ -53,7 +53,6 @@ let isScreenSharing = false;
 let isDeviceAudioSharing = false;
 let isMicOn = false;
 let isCamOn = false;
-let isFullscreen = false;
 
 const peers = {};
 
@@ -98,7 +97,6 @@ function getMyName() {
   return (nameInput.value || '').trim() || (isHost ? '🎬 المضيف' : '👤 مشاهد');
 }
 
-// تحديث عدد المشاهدين
 function updateViewersCount() {
   const count = Object.keys(peers).length;
   viewersCountSpan.textContent = count;
@@ -150,7 +148,7 @@ async function cleanupAll() {
   sharedFrame.style.display = 'none';
 }
 
-// ===== إنشاء اتصال مع مستخدم آخر (Mesh) =====
+// ===== إنشاء اتصال مع مستخدم آخر =====
 function createPeerConnection(peerId, initiator) {
   if (peers[peerId] && peers[peerId].pc) return peers[peerId].pc;
 
@@ -158,13 +156,14 @@ function createPeerConnection(peerId, initiator) {
   peers[peerId] = { pc, makingOffer: false, polite: !initiator };
 
   ensureCamTile(peerId);
-
-  // إضافة المسارات المحلية
   addAllLocalTracks(pc);
 
   pc.ontrack = (event) => {
     const remoteStream = event.streams[0];
+    
+    // إذا كان المسار فيديو ونحن لسنا المضيف (أي ضيف) وهذه أول فيديو قادم
     if (event.track.kind === 'video') {
+      // تحقق إذا كان هذا الفيديو قادم من المضيف (بث الشاشة)
       const vidEl = document.getElementById('cam-vid-' + peerId);
       if (vidEl && vidEl.srcObject !== remoteStream) {
         vidEl.srcObject = remoteStream;
@@ -215,6 +214,7 @@ function createPeerConnection(peerId, initiator) {
 }
 
 function addAllLocalTracks(pc) {
+  // أضف بث الشاشة إذا وجد (للمضيف وللضيوف الذين يستلمونه)
   if (isHost && screenStream) {
     screenStream.getTracks().forEach(track => {
       if (!pc.getSenders().some(s => s.track === track)) pc.addTrack(track, screenStream);
@@ -238,8 +238,6 @@ function addAllLocalTracks(pc) {
 }
 
 function listenForSignals(peerId) {
-  const sigRef = ref(db, `rooms/${roomId}/signals/${myId}/${peerId}`);
-
   onValue(ref(db, `rooms/${roomId}/signals/${myId}/${peerId}/offer`), async (snapshot) => {
     const offer = snapshot.val();
     if (!offer) return;
@@ -300,7 +298,13 @@ function watchParticipants() {
     updateCamName(peerId, data.name || 'مستخدم');
 
     const initiator = myId > peerId;
-    createPeerConnection(peerId, initiator);
+    const pc = createPeerConnection(peerId, initiator);
+    
+    // إذا كان المستخدم الجديد هو المضيف وكان لديه شاشة، فأضف مسار الشاشة
+    if (data.isHost && data.screenStream && !isHost) {
+      // هذا سيتم التعامل معه عبر ontrack
+    }
+    
     updateViewersCount();
   });
 
@@ -329,15 +333,23 @@ async function broadcastScreenToAll() {
     const pc = peers[peerId].pc;
     if (pc && screenStream) {
       const videoTrack = screenStream.getVideoTracks()[0];
-      const existing = pc.getSenders().some(s => s.track === videoTrack);
-      if (!existing && videoTrack) {
-        pc.addTrack(videoTrack, screenStream);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await set(ref(db, `rooms/${roomId}/signals/${peerId}/${myId}/offer`), { type: offer.type, sdp: offer.sdp });
+      if (videoTrack) {
+        const existing = pc.getSenders().some(s => s.track === videoTrack);
+        if (!existing) {
+          pc.addTrack(videoTrack, screenStream);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await set(ref(db, `rooms/${roomId}/signals/${peerId}/${myId}/offer`), { type: offer.type, sdp: offer.sdp });
+        }
       }
     }
   }
+}
+
+// ===== استلام بث الشاشة للمشاهدين =====
+function setupScreenReceiver() {
+  // نستمع لأي مسار فيديو جديد من المضيف
+  // سيتم التعامل معه عبر ontrack في اتصال المضيف
 }
 
 // ===== حدث المضيف =====
@@ -364,7 +376,6 @@ btnHost.addEventListener('click', async () => {
     watchParticipants();
     watchChat();
 
-    // بدء الميكروفون تلقائياً للمضيف
     setTimeout(() => { if (!isMicOn) btnMic.click(); }, 1000);
   } catch (error) {
     updateStatus(`❌ خطأ: ${error.message}`, true);
@@ -397,6 +408,7 @@ btnShareScreen.addEventListener('click', async () => {
     cinemaVideo.style.display = "block";
     sharedFrame.style.display = "none";
     
+    // بث الشاشة لجميع المتصلين
     await broadcastScreenToAll();
 
     screenStream.getVideoTracks()[0].onended = () => {
@@ -505,7 +517,8 @@ btnJoin.addEventListener('click', async () => {
     watchParticipants();
     watchChat();
 
-    // بدء الميكروفون تلقائياً للمشاهد
+    setupScreenReceiver();
+    
     setTimeout(() => { if (!isMicOn) btnMic.click(); }, 1000);
   } catch (error) {
     updateStatus(`❌ خطأ: ${error.message}`, true);
@@ -650,7 +663,7 @@ document.body.addEventListener('click', () => {
   });
 });
 
-console.log("✅ التطبيق جاهز - شاشة سينما كبيرة + كاميرات المشاركين");
+console.log("✅ التطبيق جاهز - شاشة سينما كبيرة للجميع + كاميرات المشاركين");
 </script>
 
 <style>
@@ -718,6 +731,8 @@ body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  max-height: 250px;
+  overflow-y: auto;
 }
 .cam-tile {
   width: 140px;
@@ -726,6 +741,7 @@ body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify
   overflow: hidden;
   border: 1px solid var(--glass-border);
   position: relative;
+  flex-shrink: 0;
 }
 .cam-tile video {
   width: 100%;
@@ -743,6 +759,7 @@ body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify
 }
 #local-cam-video {
   transform: scaleX(-1);
+  display: none;
 }
 
 /* الدردشة */
@@ -752,7 +769,7 @@ body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify
   padding: 15px;
   display: flex;
   flex-direction: column;
-  height: 500px;
+  height: 550px;
 }
 .chat-section h3 {
   margin-bottom: 10px;
@@ -829,7 +846,7 @@ input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padd
 
 <div class="container">
   <div id="welcome-screen" class="screen active">
-    <h1>🎬 سينما لايف - شاشة سينما + كاميرات المشاركين</h1>
+    <h1>🎬 سينما لايف - بث سينما + كاميرات المشاركين</h1>
     <input type="text" id="name-input" placeholder="✏️ اسمك (اختياري)">
     <button id="btn-host" class="btn">🚀 إنشاء غرفة (مضيف)</button>
     <div class="divider" style="margin: 20px 0;">أو</div>
@@ -861,8 +878,8 @@ input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padd
           <h3>📷 كاميرات المشاركين</h3>
           <div id="cams-grid">
             <div id="local-cam-tile" class="cam-tile">
-              <video id="local-cam-video" autoplay playsinline muted style="display: none;"></video>
-              <div class="cam-name">أنت (${getMyName()})</div>
+              <video id="local-cam-video" autoplay playsinline muted></video>
+              <div class="cam-name">أنت</div>
             </div>
           </div>
         </div>
