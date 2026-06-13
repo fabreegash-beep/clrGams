@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>سينما لايف - بث واتصال جماعي</title>
+<title>تطبيق السينما والبث الحي - بث منفصل للشاشة والصوت + دردشة جماعية</title>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, onChildAdded, onChildRemoved, remove, onDisconnect, push } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+import { getDatabase, ref, set, onValue, update, onChildAdded, onChildRemoved, remove, onDisconnect, push } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
 
 // إعدادات Firebase
 const firebaseConfig = {
@@ -23,7 +23,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// خوادم STUN/TURN
+// خوادم STUN/TURN المحسنة
 const iceServers = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -39,20 +39,22 @@ const iceServers = {
   iceCandidatePoolSize: 10
 };
 
-// المتغيرات العامة
-let screenStream = null;
-let audioStream = null;
-let localStream = null;
-let roomId = null;
+// ===== المتغيرات العامة =====
+let peerConnection;        // اتصال WebRTC للبث
+let videoStream = null;    // تيار الشاشة (بدون صوت)
+let audioStream = null;    // تيار صوت الجهاز فقط
+let localChatStream = null; // تيار الميكروفون والكاميرا للدردشة
+let roomId;
 let isHost = false;
-let userId = null;
 let isScreenSharing = false;
 let isAudioSharing = false;
 let isMicOn = false;
 let isCameraOn = false;
+let currentUser = null;
+let userId = null;
 
-let participants = {};
-let peerConnections = {};
+// تخزين اتصالات الدردشة مع المشاركين
+let chatPeerConnections = {};
 
 // عناصر DOM
 const welcomeScreen = document.getElementById('welcome-screen');
@@ -64,6 +66,7 @@ const btnSetName = document.getElementById('btn-set-name');
 const userNameInput = document.getElementById('user-name-input');
 const roomCodeInput = document.getElementById('room-code-input');
 const displayRoomCode = document.getElementById('display-room-code');
+const remoteVideo = document.getElementById('remote-video');
 const statusText = document.getElementById('status-text');
 const hostControlArea = document.getElementById('host-control-area');
 const urlInput = document.getElementById('url-input');
@@ -80,9 +83,11 @@ const localVideo = document.getElementById('local-video');
 const participantsCount = document.getElementById('participants-count');
 const cinemaContainer = document.getElementById('cinema-container');
 const btnToggleFullscreen = document.getElementById('btn-toggle-fullscreen');
-const currentUserName = document.getElementById('current-user-name');
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const btnSendChat = document.getElementById('btn-send-chat');
 
-let currentUser = null;
+let participants = {};
 
 function updateStatus(message, isError = false) {
   statusText.innerHTML = message;
@@ -93,6 +98,24 @@ function updateStatus(message, isError = false) {
 function updateParticipantsCount() {
   const count = Object.keys(participants).length;
   participantsCount.innerText = count;
+}
+
+function addChatMessage(name, message, isSystem = false) {
+  const div = document.createElement('div');
+  div.className = 'chat-line' + (isSystem ? ' chat-system' : '');
+  if (isSystem) {
+    div.innerHTML = `🔔 ${message}`;
+  } else {
+    div.innerHTML = `<span class="chat-name">${escapeHtml(name)}:</span> ${escapeHtml(message)}`;
+  }
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.innerText = str;
+  return div.innerHTML;
 }
 
 function createParticipantVideo(participantId, stream, name) {
@@ -126,27 +149,129 @@ function removeParticipantVideo(participantId) {
   updateParticipantsCount();
 }
 
-// تنظيف الاتصالات
-async function cleanup() {
-  if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
-  if (audioStream) { audioStream.getTracks().forEach(t => t.stop()); audioStream = null; }
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+// إضافة مسار إلى اتصال البث
+async function addTrackToConnection(track, stream) {
+  if (peerConnection && track) {
+    const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === track.kind);
+    if (sender) {
+      await sender.replaceTrack(track);
+      updateStatus(`✅ تم تحديث مسار ${track.kind === 'audio' ? 'الصوت' : 'الفيديو'}`);
+    } else {
+      peerConnection.addTrack(track, stream);
+      updateStatus(`✅ تم إضافة مسار ${track.kind === 'audio' ? 'الصوت' : 'الفيديو'}`);
+    }
+  }
+}
+
+// تنظيف الاتصال
+async function cleanupConnection() {
+  if (videoStream) {
+    videoStream.getTracks().forEach(track => track.stop());
+    videoStream = null;
+  }
+  if (audioStream) {
+    audioStream.getTracks().forEach(track => track.stop());
+    audioStream = null;
+  }
+  if (localChatStream) {
+    localChatStream.getTracks().forEach(track => track.stop());
+    localChatStream = null;
+  }
   
-  Object.values(peerConnections).forEach(pc => pc.close());
-  peerConnections = {};
+  if (peerConnection) {
+    peerConnection.close();
+    peerConnection = null;
+  }
+  
+  Object.values(chatPeerConnections).forEach(pc => pc.close());
+  chatPeerConnections = {};
   
   isScreenSharing = false;
   isAudioSharing = false;
+  isMicOn = false;
+  isCameraOn = false;
+  
+  participantsGrid.innerHTML = '';
+  participants = {};
   
   if (roomId && userId) {
-    await remove(ref(db, `rooms/${roomId}/users/${userId}`)).catch(() => {});
+    const userRef = ref(db, `rooms/${roomId}/users/${userId}`);
+    await remove(userRef).catch(() => {});
   }
+}
+
+// ==================== إنشاء اتصال دردشة مع مشارك ====================
+async function createChatConnection(otherId, userName) {
+  if (chatPeerConnections[otherId]) return;
+  
+  const pc = new RTCPeerConnection(iceServers);
+  chatPeerConnections[otherId] = pc;
+  
+  // إضافة مسارات الميكروفون والكاميرا
+  if (localChatStream) {
+    localChatStream.getTracks().forEach(track => {
+      pc.addTrack(track, localChatStream);
+    });
+  }
+  
+  pc.ontrack = (event) => {
+    if (event.track.kind === 'video') {
+      createParticipantVideo(otherId, event.streams[0], userName);
+    }
+  };
+  
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      push(ref(db, `rooms/${roomId}/chatSignals/${otherId}/${userId}/candidates`), event.candidate.toJSON());
+    }
+  };
+  
+  // الاستماع للعروض
+  const offerRef = ref(db, `rooms/${roomId}/chatSignals/${userId}/${otherId}/offer`);
+  onValue(offerRef, async (snapshot) => {
+    const offer = snapshot.val();
+    if (offer && pc.signalingState === 'stable') {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await set(ref(db, `rooms/${roomId}/chatSignals/${otherId}/${userId}/answer`), { type: answer.type, sdp: answer.sdp });
+    }
+  });
+  
+  // الاستماع للإجابات
+  const answerRef = ref(db, `rooms/${roomId}/chatSignals/${userId}/${otherId}/answer`);
+  onValue(answerRef, async (snapshot) => {
+    const answer = snapshot.val();
+    if (answer && pc.signalingState === 'have-local-offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+  });
+  
+  // الاستماع للمرشحات
+  const candidatesRef = ref(db, `rooms/${roomId}/chatSignals/${userId}/${otherId}/candidates`);
+  onChildAdded(candidatesRef, (snapshot) => {
+    const candidate = snapshot.val();
+    if (candidate && pc.remoteDescription) {
+      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+    }
+  });
+  
+  // بدء المفاوضة
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await set(ref(db, `rooms/${roomId}/chatSignals/${otherId}/${userId}/offer`), { type: offer.type, sdp: offer.sdp });
 }
 
 // ==================== المضيف ====================
 btnHost.addEventListener('click', () => {
   switchScreen(welcomeScreen, nameScreen);
   isHost = true;
+});
+
+// ==================== الضيف ====================
+btnJoin.addEventListener('click', () => {
+  isHost = false;
+  switchScreen(welcomeScreen, nameScreen);
 });
 
 // ==================== تعيين الاسم والدخول ====================
@@ -158,16 +283,19 @@ btnSetName.addEventListener('click', async () => {
   }
   
   currentUser = { name: userName };
+  userId = (isHost ? 'host' : 'guest') + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
   
   if (isHost) {
     // مضيف - ينشئ غرفة جديدة
     roomId = Math.floor(1000 + Math.random() * 9000).toString();
     displayRoomCode.innerText = roomId;
-    userId = 'host_' + Date.now();
     
     switchScreen(nameScreen, roomScreen);
     hostControlArea.style.display = "block";
-    updateStatus(`✅ مرحباً ${userName}! تم فتح الغرفة. شارك الكود مع أصدقائك.`);
+    remoteVideo.style.display = "none";
+    sharedFrame.style.display = "none";
+    cinemaVideo.style.display = "none";
+    updateStatus(`✅ مرحباً ${userName}! تم فتح الغرفة. شارك الكود: ${roomId}`);
     
     // إنشاء الغرفة في Firebase
     const roomRef = ref(db, `rooms/${roomId}`);
@@ -179,8 +307,9 @@ btnSetName.addEventListener('click', async () => {
     await set(userRef, { name: userName, isHost: true, joinedAt: Date.now() });
     onDisconnect(userRef).remove();
     
-    // بدء الاستماع للمستخدمين
+    // بدء الاستماع للمستخدمين الجدد
     listenForUsers();
+    listenForChat();
   } else {
     // ضيف - يدخل غرفة موجودة
     roomId = roomCodeInput.value.trim();
@@ -202,10 +331,11 @@ btnSetName.addEventListener('click', async () => {
       return;
     }
     
-    userId = 'guest_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4);
-    
     switchScreen(nameScreen, roomScreen);
     hostControlArea.style.display = "none";
+    remoteVideo.style.display = "block";
+    sharedFrame.style.display = "none";
+    cinemaVideo.style.display = "none";
     updateStatus(`📡 مرحباً ${userName}! جاري الاتصال بالغرفة...`);
     
     // تسجيل الضيف
@@ -216,13 +346,8 @@ btnSetName.addEventListener('click', async () => {
     // بدء الاستماع للمستخدمين والبث
     listenForUsers();
     listenForBroadcast();
+    listenForChat();
   }
-});
-
-// ==================== الضيف ====================
-btnJoin.addEventListener('click', () => {
-  isHost = false;
-  switchScreen(welcomeScreen, nameScreen);
 });
 
 // ==================== الاستماع للمستخدمين ====================
@@ -236,168 +361,121 @@ function listenForUsers() {
     if (otherId !== userId && !participants[otherId]) {
       participants[otherId] = userData;
       updateParticipantsCount();
+      addChatMessage('النظام', `انضم ${userData.name} إلى الغرفة`, true);
       
-      // إنشاء اتصال مع المستخدم الجديد
-      createPeerConnection(otherId, userData);
+      // إذا كان هناك بث شاشة نشط، أضف المستخدم الجديد إليه
+      if (isHost && (isScreenSharing || isAudioSharing)) {
+        addNewUserToBroadcast(otherId);
+      }
+      
+      // إنشاء اتصال دردشة مع المستخدم الجديد
+      if (localChatStream) {
+        createChatConnection(otherId, userData.name);
+      }
     }
   });
-
+  
   onChildRemoved(usersRef, (snapshot) => {
     const otherId = snapshot.key;
-    removeParticipantVideo(otherId);
-    if (peerConnections[otherId]) {
-      peerConnections[otherId].close();
-      delete peerConnections[otherId];
+    const userData = snapshot.val();
+    if (otherId !== userId) {
+      removeParticipantVideo(otherId);
+      if (chatPeerConnections[otherId]) {
+        chatPeerConnections[otherId].close();
+        delete chatPeerConnections[otherId];
+      }
+      addChatMessage('النظام', `غادر ${userData?.name || 'مشارك'} الغرفة`, true);
     }
-    updateParticipantsCount();
   });
 }
 
-// ==================== إنشاء اتصال WebRTC ====================
-async function createPeerConnection(otherId, userData) {
-  if (peerConnections[otherId]) return;
-  
-  const pc = new RTCPeerConnection(iceServers);
-  peerConnections[otherId] = pc;
-  
-  // إضافة المسارات المحلية
-  if (localStream) {
-    localStream.getTracks().forEach(track => {
-      pc.addTrack(track, localStream);
-    });
+// إضافة مستخدم جديد إلى البث الحالي
+async function addNewUserToBroadcast(otherId) {
+  if (!peerConnection) {
+    await setupWebrtcAsHost();
   }
   
-  // إذا كان المضيف ولديه شاشة، أضف مسار الشاشة
-  if (isHost && screenStream) {
-    screenStream.getTracks().forEach(track => {
-      pc.addTrack(track, screenStream);
-    });
+  // إضافة مسارات الشاشة والصوت للمستخدم الجديد
+  if (videoStream && isScreenSharing) {
+    const videoTrack = videoStream.getVideoTracks()[0];
+    peerConnection.addTrack(videoTrack, videoStream);
   }
-  if (isHost && audioStream) {
-    audioStream.getTracks().forEach(track => {
-      pc.addTrack(track, audioStream);
-    });
+  if (audioStream && isAudioSharing) {
+    const audioTrack = audioStream.getAudioTracks()[0];
+    peerConnection.addTrack(audioTrack, audioStream);
   }
   
-  pc.ontrack = (event) => {
-    if (event.track.kind === 'video') {
-      createParticipantVideo(otherId, event.streams[0], userData?.name || 'مشارك');
-    }
-  };
-  
-  pc.onicecandidate = (event) => {
-    if (event.candidate) {
-      push(ref(db, `rooms/${roomId}/signals/${otherId}/${userId}/candidates`), event.candidate.toJSON());
-    }
-  };
-  
-  // الاستماع للعروض من الطرف الآخر
-  const offerRef = ref(db, `rooms/${roomId}/signals/${userId}/${otherId}/offer`);
-  onValue(offerRef, async (snapshot) => {
-    const offer = snapshot.val();
-    if (offer && pc.signalingState === 'stable') {
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await set(ref(db, `rooms/${roomId}/signals/${otherId}/${userId}/answer`), { type: answer.type, sdp: answer.sdp });
-      } catch (error) {
-        console.error("Error handling offer:", error);
-      }
-    }
+  // إعادة التفاوض
+  const offer = await peerConnection.createOffer();
+  await peerConnection.setLocalDescription(offer);
+  await update(ref(db, `rooms/${roomId}`), {
+    offer: { type: offer.type, sdp: offer.sdp }
   });
-  
-  // الاستماع للإجابات
-  const answerRef = ref(db, `rooms/${roomId}/signals/${userId}/${otherId}/answer`);
-  onValue(answerRef, async (snapshot) => {
-    const answer = snapshot.val();
-    if (answer && pc.signalingState === 'have-local-offer') {
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      } catch (error) {
-        console.error("Error handling answer:", error);
-      }
-    }
-  });
-  
-  // الاستماع للمرشحات
-  const candidatesRef = ref(db, `rooms/${roomId}/signals/${userId}/${otherId}/candidates`);
-  onChildAdded(candidatesRef, (snapshot) => {
-    const candidate = snapshot.val();
-    if (candidate && pc.remoteDescription) {
-      pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
-    }
-  });
-  
-  // بدء المفاوضة إذا كان المستخدم الحالي هو المضيف أو إذا كان المستخدم الجديد هو المضيف
-  const shouldInitiate = (isHost && !userData?.isHost) || (!isHost && userData?.isHost);
-  
-  if (shouldInitiate) {
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await set(ref(db, `rooms/${roomId}/signals/${otherId}/${userId}/offer`), { type: offer.type, sdp: offer.sdp });
-    } catch (error) {
-      console.error("Error creating offer:", error);
-    }
-  }
 }
 
-// ==================== مشاركة الشاشة ====================
+// ==================== بث الشاشة ====================
 btnShareScreen.addEventListener('click', async () => {
   if (isScreenSharing) {
-    if (screenStream) screenStream.getTracks().forEach(t => t.stop());
-    screenStream = null;
+    if (videoStream) {
+      videoStream.getTracks().forEach(track => track.stop());
+      videoStream = null;
+    }
     isScreenSharing = false;
     btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
-    cinemaVideo.style.display = 'none';
+    remoteVideo.style.display = "none";
     updateStatus("تم إيقاف مشاركة الشاشة");
     return;
   }
   
+  updateStatus("🖥️ جاري مشاركة الشاشة...");
+  
   try {
-    screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30, width: 1920, height: 1080 },
+    videoStream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: 30 }, width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false
     });
     
     isScreenSharing = true;
-    cinemaVideo.srcObject = screenStream;
-    cinemaVideo.style.display = 'block';
-    btnShareScreen.textContent = "⏹️ إيقاف المشاركة";
-    updateStatus("✅ تم مشاركة الشاشة!");
+    updateStatus("✅ تم مشاركة الشاشة بنجاح!");
     
-    // إضافة مسار الشاشة لجميع الاتصالات
-    for (const [peerId, pc] of Object.entries(peerConnections)) {
-      const videoTrack = screenStream.getVideoTracks()[0];
-      pc.addTrack(videoTrack, screenStream);
-      
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await set(ref(db, `rooms/${roomId}/signals/${peerId}/${userId}/offer`), { type: offer.type, sdp: offer.sdp });
+    if (!peerConnection) {
+      await setupWebrtcAsHost();
     }
     
-    screenStream.getVideoTracks()[0].onended = () => {
+    const videoTrack = videoStream.getVideoTracks()[0];
+    await addTrackToConnection(videoTrack, videoStream);
+    
+    remoteVideo.srcObject = videoStream;
+    remoteVideo.style.display = "block";
+    btnShareScreen.textContent = "⏹️ إيقاف المشاركة";
+    updateStatus("🎬 بث الشاشة يعمل الآن!");
+    
+    videoTrack.onended = () => {
       isScreenSharing = false;
       btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
-      cinemaVideo.style.display = 'none';
-      updateStatus("تم إيقاف مشاركة الشاشة");
+      remoteVideo.style.display = "none";
+      updateStatus("⚠️ توقفت مشاركة الشاشة", true);
     };
+    
   } catch (error) {
-    updateStatus(`فشل مشاركة الشاشة: ${error.message}`, true);
+    updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, true);
   }
 });
 
 // ==================== صوت الجهاز ====================
 btnShareAudio.addEventListener('click', async () => {
   if (isAudioSharing) {
-    if (audioStream) audioStream.getTracks().forEach(t => t.stop());
-    audioStream = null;
+    if (audioStream) {
+      audioStream.getTracks().forEach(track => track.stop());
+      audioStream = null;
+    }
     isAudioSharing = false;
     btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
-    updateStatus("تم إيقاف صوت الجهاز");
+    updateStatus("🔇 تم إيقاف بث صوت الجهاز");
     return;
   }
+  
+  updateStatus("🎵 جاري تشغيل صوت الجهاز...");
   
   try {
     const tempStream = await navigator.mediaDevices.getDisplayMedia({
@@ -410,44 +488,208 @@ btnShareAudio.addEventListener('click', async () => {
       audioStream = new MediaStream();
       audioStream.addTrack(audioTrack);
       isAudioSharing = true;
-      btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
-      updateStatus("✅ تم تشغيل صوت الجهاز!");
       
-      for (const [peerId, pc] of Object.entries(peerConnections)) {
-        pc.addTrack(audioTrack, audioStream);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await set(ref(db, `rooms/${roomId}/signals/${peerId}/${userId}/offer`), { type: offer.type, sdp: offer.sdp });
+      if (!peerConnection) {
+        await setupWebrtcAsHost();
       }
+      
+      await addTrackToConnection(audioTrack, audioStream);
+      
+      updateStatus("🎵 تم تشغيل صوت الجهاز!");
+      btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
       
       audioTrack.onended = () => {
         isAudioSharing = false;
         btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
       };
+      
+      tempStream.getVideoTracks().forEach(track => track.stop());
     }
-    tempStream.getVideoTracks().forEach(t => t.stop());
   } catch (error) {
-    updateStatus(`فشل تشغيل الصوت: ${error.message}`, true);
+    updateStatus(`❌ فشل تشغيل الصوت: ${error.message}`, true);
   }
 });
 
 // ==================== رابط الموقع ====================
 btnSendUrl.addEventListener('click', () => {
   let url = urlInput.value.trim();
-  if (!url) return updateStatus("أدخل الرابط", true);
+  if (!url) {
+    updateStatus("⚠️ الرجاء إدخال الرابط", true);
+    return;
+  }
   if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
   sharedFrame.src = url;
   sharedFrame.style.display = "block";
-  cinemaVideo.style.display = "none";
-  updateStatus("تم تحميل الموقع");
+  remoteVideo.style.display = "none";
+  updateStatus("📺 تم تحميل الموقع");
+});
+
+// ==================== إعداد اتصال WebRTC للمضيف ====================
+async function setupWebrtcAsHost() {
+  peerConnection = new RTCPeerConnection(iceServers);
+  
+  peerConnection.onconnectionstatechange = () => {
+    if (peerConnection.connectionState === 'connected') {
+      updateStatus("✅ البث متصل بنجاح!");
+    } else if (peerConnection.connectionState === 'failed') {
+      updateStatus("❌ فشل الاتصال", true);
+    }
+  };
+  
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      const candidateRef = ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}`);
+      set(candidateRef, event.candidate.toJSON());
+    }
+  };
+  
+  peerConnection.onnegotiationneeded = async () => {
+    try {
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      await update(ref(db, `rooms/${roomId}`), {
+        offer: { type: offer.type, sdp: offer.sdp }
+      });
+    } catch (error) {
+      console.error("Negotiation error:", error);
+    }
+  };
+  
+  // الاستماع لإجابات الضيف
+  onValue(ref(db, `rooms/${roomId}/answer`), (snapshot) => {
+    const answer = snapshot.val();
+    if (answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
+      peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
+        .then(() => updateStatus("✅ تم استلام رد الضيف"))
+        .catch(console.error);
+    }
+  });
+  
+  // الاستماع لمرشحات الضيف
+  onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snapshot) => {
+    if (snapshot.exists() && peerConnection) {
+      peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
+        .catch(console.error);
+    }
+  });
+}
+
+// ==================== إعداد اتصال WebRTC للضيف ====================
+async function setupWebrtcAsGuest() {
+  peerConnection = new RTCPeerConnection(iceServers);
+  
+  peerConnection.ontrack = (event) => {
+    if (event.streams && event.streams[0]) {
+      remoteVideo.srcObject = event.streams[0];
+      remoteVideo.play().then(() => {
+        const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
+        updateStatus(`🎬 تم الاتصال!${hasAudio ? ' يتم سماع صوت الجهاز.' : ''}`);
+      }).catch(() => {
+        updateStatus("⚠️ انقر على الفيديو لبدء التشغيل", true);
+      });
+    }
+  };
+  
+  peerConnection.onconnectionstatechange = () => {
+    if (peerConnection.connectionState === 'connected') {
+      updateStatus("✅ تم الاتصال بالبث بنجاح!");
+    } else if (peerConnection.connectionState === 'failed') {
+      updateStatus("❌ فشل الاتصال", true);
+    }
+  };
+  
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate) {
+      const candidateRef = ref(db, `rooms/${roomId}/guestCandidates/${Date.now()}`);
+      set(candidateRef, event.candidate.toJSON());
+    }
+  };
+  
+  // الاستماع لعرض المضيف
+  onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
+    const offer = snapshot.val();
+    if (offer && peerConnection && peerConnection.signalingState === 'stable') {
+      try {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        await update(ref(db, `rooms/${roomId}`), {
+          answer: { type: answer.type, sdp: answer.sdp }
+        });
+        updateStatus("✅ تم إرسال الرد إلى المضيف");
+      } catch (error) {
+        console.error("Error:", error);
+      }
+    }
+  });
+  
+  // الاستماع لمرشحات المضيف
+  onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snapshot) => {
+    if (snapshot.exists() && peerConnection) {
+      peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
+        .catch(console.error);
+    }
+  });
+  
+  const offerSnapshot = await new Promise((resolve) => {
+    onValue(ref(db, `rooms/${roomId}/offer`), resolve, { onlyOnce: true });
+  });
+  
+  if (offerSnapshot.exists() && peerConnection.signalingState === 'stable') {
+    const offer = offerSnapshot.val();
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    await update(ref(db, `rooms/${roomId}`), {
+      answer: { type: answer.type, sdp: answer.sdp }
+    });
+  }
+}
+
+// ==================== استلام البث للضيوف ====================
+function listenForBroadcast() {
+  const broadcastRef = ref(db, `rooms/${roomId}`);
+  onValue(broadcastRef, (snapshot) => {
+    const data = snapshot.val();
+    if (data && data.offer && !isHost && !peerConnection) {
+      setupWebrtcAsGuest();
+    }
+  });
+}
+
+// ==================== الدردشة النصية ====================
+function listenForChat() {
+  onChildAdded(ref(db, `rooms/${roomId}/chat`), (snapshot) => {
+    const msg = snapshot.val();
+    if (msg && msg.senderId !== userId) {
+      addChatMessage(msg.name, msg.message);
+    }
+  });
+}
+
+btnSendChat.addEventListener('click', () => {
+  const message = chatInput.value.trim();
+  if (!message) return;
+  
+  push(ref(db, `rooms/${roomId}/chat`), {
+    name: currentUser.name,
+    message: message,
+    senderId: userId,
+    timestamp: Date.now()
+  });
+  addChatMessage(currentUser.name, message);
+  chatInput.value = '';
+});
+
+chatInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') btnSendChat.click();
 });
 
 // ==================== الميكروفون والكاميرا ====================
 btnToggleMic.addEventListener('click', async () => {
   if (isMicOn) {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(t => t.stop());
-      localStream = null;
+    if (localChatStream) {
+      localChatStream.getAudioTracks().forEach(t => t.stop());
     }
     isMicOn = false;
     btnToggleMic.classList.remove('active');
@@ -455,13 +697,13 @@ btnToggleMic.addEventListener('click', async () => {
   } else {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!localStream) localStream = new MediaStream();
-      stream.getAudioTracks().forEach(t => localStream.addTrack(t));
-      localVideo.srcObject = localStream;
-      localVideo.style.display = 'block';
+      if (!localChatStream) localChatStream = new MediaStream();
+      stream.getAudioTracks().forEach(t => localChatStream.addTrack(t));
+      localVideo.srcObject = localChatStream;
       
-      for (const pc of Object.values(peerConnections)) {
-        stream.getAudioTracks().forEach(t => pc.addTrack(t, localStream));
+      // إضافة الصوت لجميع اتصالات الدردشة
+      for (const [otherId, pc] of Object.entries(chatPeerConnections)) {
+        stream.getAudioTracks().forEach(t => pc.addTrack(t, localChatStream));
       }
       
       isMicOn = true;
@@ -475,22 +717,23 @@ btnToggleMic.addEventListener('click', async () => {
 
 btnToggleCamera.addEventListener('click', async () => {
   if (isCameraOn) {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(t => t.stop());
+    if (localChatStream) {
+      localChatStream.getVideoTracks().forEach(t => t.stop());
     }
     isCameraOn = false;
     btnToggleCamera.classList.remove('active');
+    localVideo.style.display = 'none';
     updateStatus("تم إيقاف الكاميرا");
   } else {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-      if (!localStream) localStream = new MediaStream();
-      stream.getVideoTracks().forEach(t => localStream.addTrack(t));
-      localVideo.srcObject = localStream;
+      if (!localChatStream) localChatStream = new MediaStream();
+      stream.getVideoTracks().forEach(t => localChatStream.addTrack(t));
+      localVideo.srcObject = localChatStream;
       localVideo.style.display = 'block';
       
-      for (const pc of Object.values(peerConnections)) {
-        stream.getVideoTracks().forEach(t => pc.addTrack(t, localStream));
+      for (const [otherId, pc] of Object.entries(chatPeerConnections)) {
+        stream.getVideoTracks().forEach(t => pc.addTrack(t, localChatStream));
       }
       
       isCameraOn = true;
@@ -504,7 +747,8 @@ btnToggleCamera.addEventListener('click', async () => {
 
 btnToggleSpeaker.addEventListener('click', () => {
   const isMuted = !btnToggleSpeaker.classList.contains('active');
-  document.querySelectorAll('video').forEach(v => v.muted = isMuted);
+  remoteVideo.muted = isMuted;
+  document.querySelectorAll('.participant-video video').forEach(v => v.muted = isMuted);
   if (isMuted) {
     btnToggleSpeaker.classList.add('active');
     btnToggleSpeaker.innerHTML = '🔊';
@@ -515,18 +759,6 @@ btnToggleSpeaker.addEventListener('click', () => {
     updateStatus("السماعة معطلة");
   }
 });
-
-// ==================== استلام البث للضيوف ====================
-function listenForBroadcast() {
-  // الضيف يستمع لأي بث جديد من المضيف
-  const broadcastRef = ref(db, `rooms/${roomId}/broadcast`);
-  onValue(broadcastRef, (snapshot) => {
-    const data = snapshot.val();
-    if (data && data.active) {
-      updateStatus("📡 يتم استلام البث من المضيف");
-    }
-  });
-}
 
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
@@ -545,24 +777,31 @@ function switchScreen(hide, show) {
   show.classList.add('active');
 }
 
-window.addEventListener('beforeunload', () => cleanup());
+document.body.addEventListener('click', () => {
+  if (remoteVideo.srcObject && remoteVideo.paused) {
+    remoteVideo.play().catch(() => {});
+  }
+});
 
-console.log("✅ التطبيق جاهز");
+window.addEventListener('beforeunload', () => cleanupConnection());
+
+console.log("✅ التطبيق جاهز - بث منفصل + دردشة صوتية وفيديو جماعية");
 </script>
 
 <style>
 :root {
   --bg-gradient: linear-gradient(135deg, #060913, #131a35, #060913);
-  --glass-bg: rgba(255, 255, 255, 0.05);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
   --accent-color: #00f2fe;
+  --text-color: #ffffff;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
 
-body { background: var(--bg-gradient); min-height: 100vh; padding: 15px; color: white; }
+body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 15px; }
 
-.container { max-width: 1400px; margin: 0 auto; background: rgba(255,255,255,0.03); backdrop-filter: blur(20px); border-radius: 24px; padding: 20px; }
+.container { width: 100%; max-width: 1400px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 25px; }
 
 .screen { display: none; }
 .screen.active { display: block; }
@@ -574,8 +813,9 @@ body { background: var(--bg-gradient); min-height: 100vh; padding: 15px; color: 
 .cinema-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
 .cinema-header h3 { color: var(--accent-color); }
 #cinema-container { background: #000; border-radius: 16px; overflow: hidden; aspect-ratio: 16/9; }
-#cinema-video, #shared-frame { width: 100%; height: 100%; object-fit: contain; }
+#cinema-video, #shared-frame, #remote-video { width: 100%; height: 100%; object-fit: contain; }
 #shared-frame { border: none; background: #fff; display: none; }
+#remote-video { display: none; }
 
 /* شبكة المشاركين */
 .participants-section { background: rgba(0,0,0,0.3); border-radius: 20px; padding: 15px; margin-top: 20px; }
@@ -588,46 +828,64 @@ body { background: var(--bg-gradient); min-height: 100vh; padding: 15px; color: 
 .local-video-container video { width: 100%; height: 100px; object-fit: cover; display: none; }
 .local-video-label { position: absolute; bottom: 4px; right: 6px; background: var(--accent-color); color: #000; padding: 2px 6px; border-radius: 6px; font-size: 0.7rem; font-weight: bold; }
 
+/* الدردشة */
+.chat-section { background: rgba(0,0,0,0.3); border-radius: 20px; padding: 15px; display: flex; flex-direction: column; height: 500px; }
+.chat-section h3 { color: var(--accent-color); margin-bottom: 10px; }
+#chat-messages { flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 10px; margin-bottom: 10px; }
+.chat-line { padding: 5px 8px; margin-bottom: 5px; background: rgba(255,255,255,0.04); border-radius: 8px; }
+.chat-system { color: var(--accent-color); font-style: italic; }
+.chat-name { color: var(--accent-color); font-weight: bold; }
+
 /* أزرار */
-.btn { background: linear-gradient(90deg, #4facfe, #00f2fe); border: none; color: white; padding: 12px 24px; border-radius: 12px; cursor: pointer; margin: 5px; transition: 0.3s; font-size: 1rem; }
+.btn { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border: none; color: white; padding: 12px 20px; font-size: 0.9rem; font-weight: bold; border-radius: 12px; cursor: pointer; margin-top: 10px; transition: transform 0.2s, opacity 0.2s; }
 .btn:hover { transform: translateY(-2px); opacity: 0.9; }
-.btn-secondary { background: rgba(255,255,255,0.1); border: 1px solid var(--glass-border); }
+.btn-secondary { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border); }
 .btn-success { background: linear-gradient(90deg, #11998e, #38ef7d); }
 .btn-warning { background: linear-gradient(90deg, #f093fb, #f5576c); }
 .btn.active { box-shadow: 0 0 15px rgba(0,242,254,0.5); }
 
-.control-btn { width: 55px; height: 55px; border-radius: 50%; border: 2px solid var(--glass-border); background: rgba(255,255,255,0.1); color: white; font-size: 1.5rem; cursor: pointer; transition: 0.3s; }
+.control-btn { width: 50px; height: 50px; border-radius: 50%; border: 2px solid var(--glass-border); background: rgba(255,255,255,0.1); color: white; font-size: 1.3rem; cursor: pointer; transition: 0.3s; }
 .control-btn:hover { transform: scale(1.05); }
 .control-btn.active { background: linear-gradient(135deg, #00f2fe, #4facfe); border-color: var(--accent-color); }
 
-.call-controls { display: flex; justify-content: center; gap: 20px; margin: 20px 0; }
-.buttons-group { display: flex; gap: 10px; flex-wrap: wrap; }
-.control-box { background: rgba(0,0,0,0.3); padding: 15px; border-radius: 16px; margin-bottom: 15px; }
-input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padding: 12px; border-radius: 12px; color: white; font-size: 1rem; }
-.status { padding: 12px; background: rgba(0,0,0,0.2); border-radius: 8px; margin: 10px 0; border-right: 3px solid var(--accent-color); }
+.call-controls { display: flex; justify-content: center; gap: 15px; margin: 20px 0; }
+.buttons-group { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.buttons-group .btn { flex: 1; margin-top: 0; }
+.control-box { background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 16px; margin-bottom: 15px; border: 1px solid rgba(0, 242, 254, 0.2); }
 
-.divider { margin: 20px 0; text-align: center; color: #888; }
+input { width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); padding: 14px; border-radius: 12px; color: white; font-size: 1rem; text-align: center; outline: none; transition: border-color 0.2s; }
+input:focus { border-color: var(--accent-color); }
 
-#name-screen input { margin: 20px 0; text-align: right; }
+.status { font-size: 0.85rem; color: #cbd5e1; margin: 15px 0; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); line-height: 1.4; border-right: 3px solid var(--accent-color); }
+
+.divider { margin: 20px 0; color: #7f8c8d; font-size: 0.85rem; display: flex; align-items: center; gap: 10px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
+
+.info-text { font-size: 0.8rem; color: #888; margin-top: 10px; }
+h1 { font-size: 1.5rem; margin-bottom: 20px; }
+
+.chat-input-row { display: flex; gap: 8px; margin-top: 10px; }
+.chat-input-row input { flex: 1; text-align: right; }
 
 @media (max-width: 768px) {
   .main-grid { grid-template-columns: 1fr; }
   .participant-video { width: 110px; }
-  .control-btn { width: 45px; height: 45px; font-size: 1.2rem; }
-  .btn { padding: 10px 20px; }
+  .control-btn { width: 45px; height: 45px; font-size: 1.1rem; }
+  .btn { padding: 10px 16px; font-size: 0.8rem; }
+  .buttons-group { flex-direction: column; }
 }
 </style>
-
+</head>
 <body>
+
 <div class="container">
   <!-- شاشة الترحيب -->
   <div id="welcome-screen" class="screen active">
-    <h1>🎬 سينما لايف - بث واتصال جماعي</h1>
-    <p style="color: #888; margin-bottom: 20px;">شاهد مع أصدقائك وتبادلوا الدردشة الصوتية والمرئية</p>
-    <button id="btn-host" class="btn">🚀 فتح غرفة جديدة (مضيف)</button>
-    <div class="divider">أو</div>
-    <input type="number" id="room-code-input" placeholder="📱 كود الغرفة (4 أرقام)">
-    <button id="btn-join" class="btn btn-secondary">👥 انضم للغرفة</button>
+    <h1>🎬 سينما لايف - بث منفصل + دردشة جماعية</h1>
+    <button id="btn-host" class="btn">🚀 فتح غرفة بث جديدة (المضيف)</button>
+    <div class="divider">أو انضم إلى صديقك للمشاهدة</div>
+    <input type="number" id="room-code-input" placeholder="📱 أدخل كود الغرفة (4 أرقام)">
+    <button id="btn-join" class="btn btn-secondary">👥 دخول لمشاهدة البث</button>
   </div>
 
   <!-- شاشة إدخال الاسم -->
@@ -639,12 +897,13 @@ input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padd
 
   <!-- شاشة الغرفة -->
   <div id="room-screen" class="screen">
-    <h1>🏠 غرفة: <span id="display-room-code" style="color: var(--accent-color);">----</span>
+    <h1>🏠 رقم الغرفة: <span id="display-room-code" style="color:var(--accent-color); letter-spacing: 2px;">----</span>
       <span style="font-size: 0.8rem;">👥 <span id="participants-count">1</span> مشارك</span>
     </h1>
-    <div id="status-text" class="status">⚙️ جاري التهيئة...</div>
+    <div id="status-text" class="status">⚙️ جاري تهيئة قنوات المزامنة...</div>
 
     <div class="main-grid">
+      <!-- العمود الأيمن -->
       <div>
         <div class="cinema-section">
           <div class="cinema-header">
@@ -654,6 +913,7 @@ input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padd
           <div id="cinema-container">
             <video id="cinema-video" autoplay playsinline style="display: none;"></video>
             <iframe id="shared-frame" allow="autoplay; encrypted-media; fullscreen" style="display: none;"></iframe>
+            <video id="remote-video" autoplay playsinline style="display: none;"></video>
           </div>
         </div>
 
@@ -668,12 +928,14 @@ input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padd
         </div>
 
         <div id="host-control-area" class="control-box">
-          <input type="text" id="url-input" placeholder="🔗 رابط موقع للمشاهدة المتزامنة">
-          <button id="btn-send-url" class="btn btn-secondary">📖 تحميل الموقع</button>
+          <input type="text" id="url-input" placeholder="🔗 ألصق رابط الموقع هنا (اختياري)" style="direction: ltr;">
+          <button id="btn-send-url" class="btn btn-secondary" style="margin-top: 10px;">📖 تحميل الموقع</button>
+
           <div class="buttons-group">
             <button id="btn-share-screen" class="btn btn-success">🖥️ مشاركة الشاشة</button>
-            <button id="btn-share-audio" class="btn btn-warning">🎵 صوت الجهاز</button>
+            <button id="btn-share-audio" class="btn btn-warning">🎵 تشغيل صوت الجهاز</button>
           </div>
+          <div class="info-text">💡 نصيحة: شارك الشاشة أولاً، ثم اضغط "تشغيل صوت الجهاز" لنقل الصوت للضيوف</div>
         </div>
 
         <div class="call-controls">
@@ -683,12 +945,13 @@ input { background: rgba(0,0,0,0.5); border: 1px solid var(--glass-border); padd
         </div>
       </div>
 
-      <div class="chat-section" style="background: rgba(0,0,0,0.3); border-radius: 20px; padding: 15px; display: flex; flex-direction: column; height: 500px;">
+      <!-- العمود الأيسر: الدردشة -->
+      <div class="chat-section">
         <h3>💬 الدردشة النصية</h3>
-        <div id="chat-log" style="flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 10px; margin-bottom: 10px;"></div>
-        <div style="display: flex; gap: 8px;">
-          <input type="text" id="chat-input" placeholder="اكتب رسالتك..." style="flex: 1;">
-          <button id="btn-chat-send" class="btn">إرسال</button>
+        <div id="chat-messages"></div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="اكتب رسالتك...">
+          <button id="btn-send-chat" class="btn">إرسال</button>
         </div>
       </div>
     </div>
