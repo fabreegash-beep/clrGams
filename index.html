@@ -591,11 +591,15 @@ if (audioTrack) pc.addTrack(audioTrack, audioStream);
 
 pc.onconnectionstatechange = () => {
 
+console.log(`[Host->${guestId}] connectionState: ${pc.connectionState}`);
+
 if (pc.connectionState === 'connected') {
 
 updateStatus(`✅ الضيف #${Object.keys(hostPeerConnections).indexOf(guestId) + 1} متصل بنجاح!`);
 
 } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+
+updateStatus(`⚠️ انقطع اتصال أحد الضيوف (${pc.connectionState})`, true);
 
 if (hostPeerConnections[guestId]) {
 
@@ -608,9 +612,35 @@ delete hostPeerConnections[guestId];
 };
 
 
+pc.oniceconnectionstatechange = () => {
+
+console.log(`[Host->${guestId}] iceConnectionState: ${pc.iceConnectionState}`);
+
+if (pc.iceConnectionState === 'checking') {
+
+updateStatus(`🔄 جاري محاولة الاتصال مع أحد الضيوف (قد يحتاج TURN)...`);
+
+} else if (pc.iceConnectionState === 'failed') {
+
+updateStatus(`❌ فشل اتصال ICE مع أحد الضيوف. على الأغلب يحتاج خادم TURN (الضيف على بيانات الجوال).`, true);
+
+}
+
+};
+
+
+pc.onicegatheringstatechange = () => {
+
+console.log(`[Host->${guestId}] iceGatheringState: ${pc.iceGatheringState}`);
+
+};
+
+
 pc.onicecandidate = (event) => {
 
 if (event.candidate) {
+
+console.log(`[Host->${guestId}] candidate type: ${event.candidate.type}, protocol: ${event.candidate.protocol}`);
 
 const candidateRef = ref(db, `rooms/${roomId}/guests/${guestId}/hostCandidates/${Date.now()}`);
 
@@ -851,6 +881,8 @@ updateStatus("⚠️ انقر على الفيديو لبدء التشغيل", tr
 
 peerConnection.onconnectionstatechange = () => {
 
+console.log(`[Guest] connectionState: ${peerConnection.connectionState}`);
+
 if (peerConnection.connectionState === 'connected') {
 
 updateStatus("✅ تم الاتصال بالبث بنجاح!");
@@ -864,9 +896,35 @@ updateStatus("❌ فشل الاتصال", true);
 };
 
 
+peerConnection.oniceconnectionstatechange = () => {
+
+console.log(`[Guest] iceConnectionState: ${peerConnection.iceConnectionState}`);
+
+if (peerConnection.iceConnectionState === 'checking') {
+
+updateStatus("🔄 جاري محاولة الاتصال بالمضيف (قد يحتاج TURN)...");
+
+} else if (peerConnection.iceConnectionState === 'failed') {
+
+updateStatus("❌ فشل اتصال ICE. الشبكة الحالية (بيانات الجوال) تحتاج خادم TURN لعمل الاتصال. جرب الواي فاي أو خادم TURN مدفوع.", true);
+
+}
+
+};
+
+
+peerConnection.onicegatheringstatechange = () => {
+
+console.log(`[Guest] iceGatheringState: ${peerConnection.iceGatheringState}`);
+
+};
+
+
 peerConnection.onicecandidate = (event) => {
 
 if (event.candidate) {
+
+console.log(`[Guest] candidate type: ${event.candidate.type}, protocol: ${event.candidate.protocol}`);
 
 const candidateRef = ref(db, `rooms/${roomId}/guests/${myGuestId}/guestCandidates/${Date.now()}`);
 
