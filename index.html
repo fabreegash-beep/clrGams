@@ -3,31 +3,58 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>سينما لايف - بث مباشر | يدعم 4G مع Xirsys</title>
+<title>سينما لايف - بث احترافي | يدعم بيانات الجوال 4G</title>
 <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
     body {
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         min-height: 100vh;
         display: flex;
         justify-content: center;
         align-items: center;
         padding: 16px;
     }
+
     .container {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.95);
         border-radius: 28px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         width: 100%;
-        max-width: 950px;
+        max-width: 1000px;
         overflow: hidden;
-        border: 1px solid rgba(255,255,255,0.2);
-        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
     }
-    .screen { display: none; padding: 24px; }
-    .screen.active { display: block; }
-    h1 { font-size: 24px; margin-bottom: 20px; text-align: center; color: white; }
+
+    .screen {
+        display: none;
+        padding: 24px;
+        animation: fadeIn 0.5s ease;
+    }
+
+    .screen.active {
+        display: block;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    h1 {
+        font-size: 28px;
+        margin-bottom: 24px;
+        text-align: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
     .btn {
         width: 100%;
         padding: 14px;
@@ -37,517 +64,628 @@
         font-size: 16px;
         font-weight: bold;
         cursor: pointer;
-        background: linear-gradient(90deg, #00f2fe 0%, #4facfe 100%);
+        transition: all 0.3s ease;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        transition: transform 0.2s;
     }
-    .btn:active { transform: scale(0.98); }
-    .btn-secondary { background: linear-gradient(90deg, #f093fb 0%, #f5576c 100%); }
-    .btn-success { background: linear-gradient(90deg, #11998e 0%, #38ef7d 100%); }
-    .btn-warning { background: linear-gradient(90deg, #fa709a 0%, #fee140 100%); color: #333; }
+
+    .btn:active {
+        transform: scale(0.98);
+    }
+
+    .btn-secondary {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    .btn-success {
+        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    }
+
+    .btn-warning {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
     input {
         width: 100%;
         padding: 14px;
         margin: 10px 0;
-        border: 1px solid rgba(255,255,255,0.3);
+        border: 2px solid #e0e0e0;
         border-radius: 14px;
         font-size: 18px;
         text-align: center;
-        background: rgba(0,0,0,0.3);
-        color: white;
+        font-weight: bold;
+        letter-spacing: 4px;
+        transition: border-color 0.3s;
     }
-    input::placeholder { color: rgba(255,255,255,0.5); }
+
+    input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+
     .status {
-        background: rgba(0,0,0,0.5);
+        background: #f0f0f0;
         padding: 12px;
         border-radius: 12px;
         margin: 16px 0;
         text-align: center;
-        color: white;
         font-size: 14px;
+        color: #333;
+        border-right: 4px solid #667eea;
     }
-    .status.error { background: rgba(255,0,0,0.3); color: #ff9999; }
-    .status.success { background: rgba(0,255,0,0.2); color: #99ff99; }
+
+    .status.error {
+        background: #fee;
+        border-right-color: #f5576c;
+        color: #c00;
+    }
+
+    .status.success {
+        background: #e8f5e9;
+        border-right-color: #4caf50;
+        color: #2e7d32;
+    }
+
     .control-box {
-        background: rgba(0,0,0,0.3);
+        background: #f8f9fa;
         padding: 20px;
         border-radius: 20px;
         margin: 20px 0;
     }
+
     .buttons-group {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 12px;
         margin-top: 15px;
     }
+
     .viewer-container {
+        position: relative;
         background: #000;
-        border-radius: 16px;
+        border-radius: 20px;
         overflow: hidden;
         aspect-ratio: 16/9;
         margin-top: 20px;
     }
-    video {
+
+    video, iframe {
         width: 100%;
         height: 100%;
         object-fit: contain;
         background: #000;
     }
-    @media (max-width: 600px) {
+
+    .network-badge {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-family: monospace;
+        z-index: 1000;
+    }
+
+    .guest-count {
+        background: #667eea;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        display: inline-block;
+        margin-bottom: 15px;
+    }
+
+    @media (max-width: 768px) {
         .screen { padding: 16px; }
-        h1 { font-size: 20px; }
+        h1 { font-size: 24px; }
         .buttons-group { grid-template-columns: 1fr; }
     }
-    .room-code {
-        font-size: 32px;
-        letter-spacing: 8px;
-        text-align: center;
-        color: #00f2fe;
-        margin: 10px 0;
-    }
-    .info-text {
-        font-size: 12px;
-        color: rgba(255,255,255,0.6);
-        margin-top: 12px;
-        text-align: center;
-    }
-    .warning {
-        background: rgba(255,193,7,0.2);
-        border: 1px solid #ffc107;
+
+    .warning-banner {
+        background: #ff9800;
+        color: white;
         padding: 10px;
-        border-radius: 10px;
+        border-radius: 12px;
         margin-bottom: 15px;
         font-size: 13px;
         text-align: center;
-        color: #ffc107;
     }
-    .hidden { display: none; }
+
+    .hidden {
+        display: none;
+    }
 </style>
 </head>
 <body>
 
 <div class="container">
+    <!-- شاشة الترحيب -->
     <div id="welcome-screen" class="screen active">
-        <h1>🎬 سينما لايف - بث مباشر</h1>
-        <div class="warning">
-            📱 يدعم جميع الشبكات (4G/5G/WiFi) - بث عالي الجودة
+        <h1>🎬 سينما لايف برو</h1>
+        <div class="warning-banner">
+            📱 نظام بث احترافي - يدعم جميع شبكات 4G و 5G و WiFi<br>
+            ✨ يعمل عبر خوادم Xirsys TURN العالمية
         </div>
         <button id="btn-host" class="btn">🚀 إنشاء غرفة بث (مضيف)</button>
-        <div style="text-align: center; margin: 15px 0; color: rgba(255,255,255,0.5);">أو</div>
-        <input type="text" id="room-code-input" placeholder="📱 كود الغرفة (4 أرقام)" maxlength="4" inputmode="numeric">
-        <button id="btn-join" class="btn btn-secondary">👥 مشاهدة البث (مشاهد)</button>
+        <div style="text-align: center; margin: 15px 0; color: #999;">أو</div>
+        <input type="text" id="room-code-input" placeholder="📱 أدخل كود الغرفة (4 أرقام)" maxlength="4" inputmode="numeric">
+        <button id="btn-join" class="btn btn-secondary">👥 انضم كمشاهد</button>
     </div>
 
+    <!-- شاشة الغرفة -->
     <div id="room-screen" class="screen">
-        <h1>🏠 غرفة البث</h1>
-        <div class="room-code" id="display-room-code">----</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h1 style="margin: 0; font-size: 20px;">🏠 غرفة: <span id="display-room-code">----</span></h1>
+            <div id="guest-count-badge" class="guest-count">👥 0 ضيوف</div>
+        </div>
+        
         <div id="status-text" class="status">⚙️ جاري التهيئة...</div>
-
-        <div id="host-control-area" style="display: none;">
+        
+        <!-- منطقة تحكم المضيف -->
+        <div id="host-control-area" class="hidden">
             <div class="control-box">
-                <button id="btn-share-screen" class="btn btn-success">🖥️ بدء بث الشاشة</button>
-                <button id="btn-stop-share" class="btn btn-warning hidden">⏹️ إيقاف البث</button>
-                <div class="info-text">
-                    💡 اضغط "بدء بث الشاشة" واختر الشاشة أو النافذة<br>
-                    🎤 سيتم بث الصوت تلقائياً مع الشاشة
+                <div class="buttons-group">
+                    <button id="btn-share-screen" class="btn btn-success">🖥️ مشاركة الشاشة</button>
+                    <button id="btn-share-audio" class="btn btn-warning">🎵 بث صوت الجهاز</button>
+                </div>
+                
+                <div style="font-size: 12px; color: #666; margin-top: 12px; text-align: center;">
+                    💡 نصيحة: شارك الشاشة أولاً، ثم شغّل الصوت. البث يدعم حتى 10 مشاهدين على بيانات الجوال!
                 </div>
             </div>
         </div>
-
+        
+        <!-- منطقة عرض الفيديو -->
         <div class="viewer-container">
             <video id="remote-video" autoplay playsinline controls></video>
-        </div>
-        
-        <div id="guest-info" style="text-align: center; margin-top: 15px; color: rgba(255,255,255,0.5); font-size: 13px;">
-            📡 في انتظار بدء البث...
         </div>
     </div>
 </div>
 
+<div id="network-badge" class="network-badge">📡 جاري التحقق...</div>
+
 <script type="module">
-// ==============================================
-// 🔥 بيانات Xirsys الخاصة بك - مدمجة في الكود
-// ==============================================
-const XIRSYS_USERNAME = "anis";
-const XIRSYS_CREDENTIAL = "e106fc76-672c-11f1-8b93-0242ac130002";
-const XIRSYS_CHANNEL = "MyFirstApp";
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect, get } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
 
-// استيراد Firebase
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, onDisconnect, remove, push, get } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+    // Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
+        authDomain: "my-online-store-34f34.firebaseapp.com",
+        databaseURL: "https://my-online-store-34f34-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "my-online-store-34f34",
+        storageBucket: "my-online-store-34f34.firebasestorage.app",
+        messagingSenderId: "288655549705",
+        appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
+    };
 
-// إعدادات Firebase
-const firebaseConfig = {
-    apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
-    authDomain: "my-online-store-34f34.firebaseapp.com",
-    databaseURL: "https://my-online-store-34f34-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "my-online-store-34f34",
-    storageBucket: "my-online-store-34f34.firebasestorage.app",
-    messagingSenderId: "288655549705",
-    appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
-};
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-// تهيئة Firebase
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-console.log("✅ Firebase initialized");
+    // ==============================================
+    // 🔥 بيانات Xirsys الخاصة بك - تم دمجها مباشرة
+    // ==============================================
+    const XIRSYS_USERNAME = "anis";
+    const XIRSYS_CREDENTIAL = "e106fc76-672c-11f1-8b93-0242ac130002";
+    const XIRSYS_CHANNEL = "MyFirstApp";
 
-// ==============================================
-// 🚀 خوادم TURN المحسنة مع Xirsys
-// ==============================================
-const getIceServers = () => ({
-    iceServers: [
-        // خوادم STUN للمساعدة
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-        { urls: 'stun:stun3.l.google.com:19302' },
-        { urls: 'stun:stun4.l.google.com:19302' },
-        { urls: 'stun:stun.xirsys.com' },
-        
-        // ⭐ خوادم Xirsys TURN - الحل الرئيسي لشبكات 4G
-        {
-            username: XIRSYS_USERNAME,
-            credential: XIRSYS_CREDENTIAL,
-            urls: [
-                `turn:turn.xirsys.com:80?transport=udp`,
-                `turn:turn.xirsys.com:3478?transport=udp`,
-                `turn:turn.xirsys.com:80?transport=tcp`,
-                `turn:turn.xirsys.com:3478?transport=tcp`,
-                `turns:turn.xirsys.com:443?transport=tcp`,
-                `turns:turn.xirsys.com:5349?transport=tcp`
-            ]
-        },
-        
-        // خوادم احتياطية مجانية
-        {
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
+    // خوادم TURN/STUN المحسنة - مع دمج Xirsys
+    const getIceServers = () => {
+        return {
+            iceServers: [
+                // خوادم STUN أساسية
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                { urls: 'stun:stun.xirsys.com' },
+                
+                // 🔥 خادم Xirsys TURN الرئيسي (يعمل على 4G)
+                {
+                    username: XIRSYS_USERNAME,
+                    credential: XIRSYS_CREDENTIAL,
+                    urls: [
+                        "turn:turn.xirsys.com:80?transport=udp",
+                        "turn:turn.xirsys.com:3478?transport=udp",
+                        "turn:turn.xirsys.com:80?transport=tcp",
+                        "turn:turn.xirsys.com:3478?transport=tcp",
+                        "turns:turn.xirsys.com:443?transport=tcp",
+                        "turns:turn.xirsys.com:5349?transport=tcp"
+                    ]
+                },
+                
+                // خوادم احتياطية (في حال فشل Xirsys)
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceTransportPolicy: 'all',
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
+        };
+    };
+
+    const MAX_GUESTS = 10;
+    let peerConnection = null;
+    let hostPeerConnections = {};
+    let videoStream = null;
+    let audioStream = null;
+    let roomId = null;
+    let isHost = false;
+    let myGuestId = null;
+    let reconnectAttempts = 0;
+
+    // عناصر DOM
+    const welcomeScreen = document.getElementById('welcome-screen');
+    const roomScreen = document.getElementById('room-screen');
+    const btnHost = document.getElementById('btn-host');
+    const btnJoin = document.getElementById('btn-join');
+    const roomCodeInput = document.getElementById('room-code-input');
+    const displayRoomCode = document.getElementById('display-room-code');
+    const remoteVideo = document.getElementById('remote-video');
+    const statusText = document.getElementById('status-text');
+    const hostControlArea = document.getElementById('host-control-area');
+    const btnShareScreen = document.getElementById('btn-share-screen');
+    const btnShareAudio = document.getElementById('btn-share-audio');
+    const guestCountBadge = document.getElementById('guest-count-badge');
+    const networkBadge = document.getElementById('network-badge');
+
+    // تحديث حالة الشبكة
+    async function checkNetworkType() {
+        const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (connection) {
+            const type = connection.effectiveType || 'unknown';
+            networkBadge.innerHTML = `📡 ${type} | Xirsys TURN`;
+            return type;
         }
-    ],
-    iceTransportPolicy: 'all',
-    iceCandidatePoolSize: 10
-});
-
-// المتغيرات العامة
-let localStream = null;
-let peerConnection = null;
-let roomId = null;
-let isHost = false;
-let isSharing = false;
-
-// عناصر DOM
-const welcomeScreen = document.getElementById('welcome-screen');
-const roomScreen = document.getElementById('room-screen');
-const btnHost = document.getElementById('btn-host');
-const btnJoin = document.getElementById('btn-join');
-const roomCodeInput = document.getElementById('room-code-input');
-const displayRoomCode = document.getElementById('display-room-code');
-const remoteVideo = document.getElementById('remote-video');
-const statusText = document.getElementById('status-text');
-const hostControlArea = document.getElementById('host-control-area');
-const btnShareScreen = document.getElementById('btn-share-screen');
-const btnStopShare = document.getElementById('btn-stop-share');
-const guestInfo = document.getElementById('guest-info');
-
-function updateStatus(message, isError = false) {
-    statusText.innerHTML = message;
-    statusText.className = `status ${isError ? 'error' : 'success'}`;
-    console.log(`[${isError ? 'ERROR' : 'INFO'}] ${message}`);
-}
-
-function switchScreen(hide, show) {
-    hide.classList.remove('active');
-    show.classList.add('active');
-}
-
-// إغلاق الاتصال القديم
-async function closeConnection() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
+        networkBadge.innerHTML = `📡 Xirsys TURN`;
+        return 'unknown';
     }
-    if (peerConnection) {
-        peerConnection.close();
-        peerConnection = null;
-    }
-}
 
-// ============== المضيف ==============
-btnHost.addEventListener('click', async () => {
-    try {
-        console.log("بدء إنشاء الغرفة...");
-        updateStatus("🚀 جاري إنشاء الغرفة...");
+    function updateStatus(message, isError = false) {
+        statusText.innerHTML = message;
+        statusText.className = `status ${isError ? 'error' : 'success'}`;
+        console.log(`[${isError ? 'ERROR' : 'INFO'}] ${message}`);
         
-        await closeConnection();
-        isHost = true;
-        roomId = Math.floor(1000 + Math.random() * 9000).toString();
-        displayRoomCode.innerText = roomId;
-        
-        switchScreen(welcomeScreen, roomScreen);
-        hostControlArea.style.display = "block";
-        remoteVideo.style.display = "block";
-        guestInfo.style.display = "block";
-        remoteVideo.srcObject = null;
-        
-        updateStatus(`✅ تم إنشاء الغرفة رقم ${roomId}. شارك الكود مع أصدقائك!`);
-        
-        // حفظ حالة الغرفة في Firebase
-        const roomRef = ref(db, `rooms/${roomId}`);
-        await set(roomRef, {
-            hostId: 'host',
-            createdAt: Date.now(),
-            active: true
-        });
-        console.log("✅ تم حفظ الغرفة في Firebase");
-        
-        // حذف الغرفة عند إغلاق المتصفح
-        onDisconnect(roomRef).remove();
-        
-        // الاستماع لطلبات المشاهدين
-        const viewerOfferRef = ref(db, `rooms/${roomId}/viewerOffer`);
-        onValue(viewerOfferRef, async (snapshot) => {
-            const offer = snapshot.val();
-            if (offer && !peerConnection) {
-                console.log("تم استلام طلب من مشاهد");
-                await startHostConnection(offer);
-            }
-        });
-        
-    } catch (error) {
-        console.error("خطأ في إنشاء الغرفة:", error);
-        updateStatus(`❌ خطأ: ${error.message}`, true);
+        if (isError && !isHost && reconnectAttempts < 3) {
+            setTimeout(() => {
+                reconnectAttempts++;
+                updateStatus(`🔄 محاولة إعادة الاتصال (${reconnectAttempts}/3)...`, false);
+                setupWebrtcAsGuest();
+            }, 3000);
+        }
     }
-});
 
-async function startHostConnection(viewerOffer) {
-    try {
+    function updateGuestCount(count) {
+        guestCountBadge.innerHTML = `👥 ${count} ${count === 1 ? 'ضيف' : 'ضيوف'}`;
+    }
+
+    // تنظيف الموارد
+    async function cleanupConnection() {
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+        if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+        }
         if (peerConnection) {
             peerConnection.close();
+            peerConnection = null;
         }
-        
-        peerConnection = new RTCPeerConnection(getIceServers());
-        
-        // إضافة مسار الفيديو إذا كان موجوداً
-        if (localStream) {
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
+        for (let guestId in hostPeerConnections) {
+            hostPeerConnections[guestId].close();
+            delete hostPeerConnections[guestId];
+        }
+    }
+
+    // إضافة مسار لجميع الضيوف
+    async function addTrackToAllConnections(track, stream) {
+        for (let guestId in hostPeerConnections) {
+            const pc = hostPeerConnections[guestId];
+            const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
+            if (sender) {
+                await sender.replaceTrack(track);
+            } else {
+                pc.addTrack(track, stream);
+            }
+        }
+    }
+
+    // ============== المضيف ==============
+    btnHost.addEventListener('click', async () => {
+        try {
+            await cleanupConnection();
+            isHost = true;
+            roomId = Math.floor(1000 + Math.random() * 9000).toString();
+            displayRoomCode.innerText = roomId;
+            
+            switchScreen(welcomeScreen, roomScreen);
+            hostControlArea.classList.remove('hidden');
+            remoteVideo.style.display = "block";
+            
+            updateStatus(`✅ تم إنشاء الغرفة رقم ${roomId}. شارك الكود مع أصدقائك!`, false);
+            
+            const roomRef = ref(db, `rooms/${roomId}`);
+            await remove(roomRef);
+            await set(ref(db, `rooms/${roomId}/createdAt`), Date.now());
+            await set(ref(db, `rooms/${roomId}/host`), "active");
+            onDisconnect(roomRef).remove();
+            
+            // مراقبة عدد الضيوف
+            onValue(ref(db, `rooms/${roomId}/guests`), (snapshot) => {
+                const guests = snapshot.val() || {};
+                const count = Object.keys(guests).length;
+                updateGuestCount(count);
             });
+            
+            // الاستماع للضيوف الجدد
+            onChildAdded(ref(db, `rooms/${roomId}/guests`), (snapshot) => {
+                const guestId = snapshot.key;
+                if (!hostPeerConnections[guestId]) {
+                    setupWebrtcForGuest(guestId);
+                }
+            });
+            
+        } catch (error) {
+            updateStatus(`❌ خطأ: ${error.message}`, true);
+        }
+    });
+
+    async function setupWebrtcForGuest(guestId) {
+        const pc = new RTCPeerConnection(getIceServers());
+        hostPeerConnections[guestId] = pc;
+        
+        if (videoStream) {
+            const videoTrack = videoStream.getVideoTracks()[0];
+            if (videoTrack) pc.addTrack(videoTrack, videoStream);
+        }
+        if (audioStream) {
+            const audioTrack = audioStream.getAudioTracks()[0];
+            if (audioTrack) pc.addTrack(audioTrack, audioStream);
         }
         
-        peerConnection.onicecandidate = (event) => {
+        pc.onicecandidate = (event) => {
             if (event.candidate) {
-                const candidateRef = ref(db, `rooms/${roomId}/hostCandidate`);
+                const candidateRef = ref(db, `rooms/${roomId}/guests/${guestId}/hostCandidates/${Date.now()}`);
                 set(candidateRef, event.candidate.toJSON());
             }
         };
         
-        peerConnection.oniceconnectionstatechange = () => {
-            console.log("ICE状態:", peerConnection.iceConnectionState);
-            if (peerConnection.iceConnectionState === 'connected') {
-                updateStatus("✅ تم اتصال المشاهد!");
-            } else if (peerConnection.iceConnectionState === 'failed') {
-                updateStatus("⚠️ فشل الاتصال بالمشاهد", true);
+        pc.onnegotiationneeded = async () => {
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await update(ref(db, `rooms/${roomId}/guests/${guestId}`), {
+                    offer: { type: offer.type, sdp: offer.sdp }
+                });
+            } catch (error) {
+                console.error("Negotiation error:", error);
             }
         };
         
-        // قبول عرض المشاهد
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(viewerOffer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        
-        // إرسال الرد للمشاهد
-        await set(ref(db, `rooms/${roomId}/hostAnswer`), {
-            type: answer.type,
-            sdp: answer.sdp
+        onValue(ref(db, `rooms/${roomId}/guests/${guestId}/answer`), (snapshot) => {
+            const answer = snapshot.val();
+            if (answer && pc.signalingState === 'have-local-offer') {
+                pc.setRemoteDescription(new RTCSessionDescription(answer)).catch(console.error);
+            }
         });
         
-        console.log("✅ تم إرسال الرد للمشاهد");
+        onChildAdded(ref(db, `rooms/${roomId}/guests/${guestId}/guestCandidates`), (snapshot) => {
+            if (snapshot.exists() && pc.remoteDescription) {
+                pc.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(console.error);
+            }
+        });
         
-    } catch (error) {
-        console.error("خطأ في الاتصال:", error);
-        updateStatus(`❌ خطأ في الاتصال: ${error.message}`, true);
+        if ((videoStream && videoStream.getVideoTracks().length) || (audioStream && audioStream.getAudioTracks().length)) {
+            setTimeout(() => pc.dispatchEvent(new Event('negotiationneeded')), 100);
+        }
     }
-}
 
-// بدء مشاركة الشاشة
-btnShareScreen.addEventListener('click', async () => {
-    try {
-        updateStatus("🖥️ جاري بدء بث الشاشة...");
-        
-        localStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { frameRate: 30, width: 1280, height: 720 },
-            audio: true
-        });
-        
-        isSharing = true;
-        btnShareScreen.classList.add('hidden');
-        btnStopShare.classList.remove('hidden');
-        
-        // إظهار معاينة للمضيف
-        remoteVideo.srcObject = localStream;
-        remoteVideo.play();
-        
-        updateStatus("🎬 جاري بث الشاشة! المشاهدون يرون شاشتك الآن.");
-        
-        // إذا كان هناك اتصال قائم، أضف المسارات
-        if (peerConnection && peerConnection.remoteDescription) {
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
+    // مشاركة الشاشة
+    btnShareScreen.addEventListener('click', async () => {
+        try {
+            updateStatus("🖥️ جاري مشاركة الشاشة عبر Xirsys TURN...", false);
+            videoStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { frameRate: 30, width: 1280, height: 720 },
+                audio: false
             });
+            
+            const videoTrack = videoStream.getVideoTracks()[0];
+            await addTrackToAllConnections(videoTrack, videoStream);
+            updateStatus("✅ جاري بث الشاشة لجميع المشاهدين (عبر Xirsys TURN - يدعم 4G)!", false);
+            btnShareScreen.textContent = "✅ الشاشة قيد البث";
+            
+            videoTrack.onended = () => {
+                updateStatus("⚠️ توقفت مشاركة الشاشة", true);
+                btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
+            };
+        } catch (error) {
+            updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, true);
         }
-        
-        localStream.getVideoTracks()[0].onended = () => {
-            stopSharing();
-        };
-        
-    } catch (error) {
-        console.error("خطأ في بدء البث:", error);
-        updateStatus(`❌ فشل البث: ${error.message}`, true);
-    }
-});
-
-function stopSharing() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    isSharing = false;
-    btnShareScreen.classList.remove('hidden');
-    btnStopShare.classList.add('hidden');
-    remoteVideo.srcObject = null;
-    updateStatus("⏹️ تم إيقاف بث الشاشة");
-}
-
-btnStopShare.addEventListener('click', stopSharing);
-
-// ============== المشاهد ==============
-btnJoin.addEventListener('click', async () => {
-    try {
-        const code = roomCodeInput.value.trim();
-        if (!code || code.length !== 4) {
-            updateStatus("⚠️ أدخل كود الغرفة الصحيح (4 أرقام)", true);
-            return;
+    });
+    
+    // بث الصوت
+    btnShareAudio.addEventListener('click', async () => {
+        if (audioStream) {
+            audioStream.getTracks().forEach(t => t.stop());
+            audioStream = null;
+            updateStatus("🔇 تم إيقاف بث الصوت", false);
+            btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
+        } else {
+            try {
+                updateStatus("🎵 جاري تشغيل صوت الجهاز...", false);
+                const tempStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { width: 1, height: 1 },
+                    audio: true
+                });
+                
+                const audioTrack = tempStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    audioStream = new MediaStream([audioTrack]);
+                    await addTrackToAllConnections(audioTrack, audioStream);
+                    updateStatus("✅ يتم بث صوت الجهاز لجميع المشاهدين (عبر Xirsys TURN)!", false);
+                    btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
+                    
+                    audioTrack.onended = () => {
+                        audioStream = null;
+                        btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
+                    };
+                }
+                tempStream.getVideoTracks().forEach(t => t.stop());
+            } catch (error) {
+                updateStatus(`❌ فشل تشغيل الصوت: ${error.message}`, true);
+            }
         }
-        
-        roomId = code;
-        displayRoomCode.innerText = roomId;
-        isHost = false;
-        
-        switchScreen(welcomeScreen, roomScreen);
-        hostControlArea.style.display = "none";
-        remoteVideo.style.display = "block";
-        guestInfo.style.display = "block";
-        
-        updateStatus("📡 جاري الاتصال بالغرفة...");
-        
-        // التحقق من وجود الغرفة
-        const roomRef = ref(db, `rooms/${roomId}`);
-        const roomSnapshot = await get(roomRef);
-        
-        if (!roomSnapshot.exists()) {
-            updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
-            return;
+    });
+    
+    // ============== المشاهد ==============
+    btnJoin.addEventListener('click', async () => {
+        try {
+            await cleanupConnection();
+            isHost = false;
+            roomId = roomCodeInput.value.trim();
+            
+            if (!roomId || roomId.length !== 4) {
+                updateStatus("⚠️ الكود يجب أن يكون 4 أرقام", true);
+                return;
+            }
+            
+            updateStatus("🔍 جاري البحث عن الغرفة...", false);
+            
+            const roomSnapshot = await get(ref(db, `rooms/${roomId}`));
+            
+            if (!roomSnapshot.exists()) {
+                updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
+                return;
+            }
+            
+            const guestsData = roomSnapshot.val().guests || {};
+            if (Object.keys(guestsData).length >= MAX_GUESTS) {
+                updateStatus(`❌ الغرفة مكتملة (الحد الأقصى ${MAX_GUESTS})`, true);
+                return;
+            }
+            
+            switchScreen(welcomeScreen, roomScreen);
+            displayRoomCode.innerText = roomId;
+            remoteVideo.style.display = "block";
+            hostControlArea.classList.add('hidden');
+            
+            updateStatus("📡 جاري الاتصال بالبث عبر خوادم Xirsys TURN (تدعم 4G)...", false);
+            
+            myGuestId = 'guest_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            const myGuestRef = ref(db, `rooms/${roomId}/guests/${myGuestId}`);
+            onDisconnect(myGuestRef).remove();
+            
+            await setupWebrtcAsGuest();
+            
+        } catch (error) {
+            updateStatus(`❌ خطأ: ${error.message}`, true);
         }
-        
-        console.log("✅ تم العثور على الغرفة");
-        await startViewerConnection();
-        
-    } catch (error) {
-        console.error("خطأ في الانضمام:", error);
-        updateStatus(`❌ خطأ: ${error.message}`, true);
-    }
-});
-
-async function startViewerConnection() {
-    try {
-        if (peerConnection) {
-            peerConnection.close();
-        }
-        
-        peerConnection = new RTCPeerConnection(getIceServers());
+    });
+    
+    async function setupWebrtcAsGuest() {
+        const iceConfig = getIceServers();
+        peerConnection = new RTCPeerConnection(iceConfig);
         
         peerConnection.ontrack = (event) => {
-            console.log("تم استلام مسار:", event.track.kind);
             if (event.streams && event.streams[0]) {
-                remoteVideo.srcObject = event.streams[0];
-                remoteVideo.play().catch(e => console.log(e));
-                updateStatus("🎬 تتلقى البث المباشر الآن!");
-                guestInfo.innerHTML = "🎬 يتم البث الآن!";
+                if (remoteVideo.srcObject) {
+                    const existingStream = remoteVideo.srcObject;
+                    event.streams[0].getTracks().forEach(track => {
+                        if (!existingStream.getTracks().find(t => t.id === track.id)) {
+                            existingStream.addTrack(track);
+                        }
+                    });
+                } else {
+                    remoteVideo.srcObject = event.streams[0];
+                }
+                remoteVideo.play().catch(() => {});
+                
+                const hasVideo = remoteVideo.srcObject.getVideoTracks().length > 0;
+                const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
+                updateStatus(`✅ تم الاتصال عبر Xirsys TURN! ${hasVideo ? 'فيديو' : ''} ${hasAudio ? '+ صوت' : ''}`, false);
+            }
+        };
+        
+        peerConnection.onconnectionstatechange = () => {
+            if (peerConnection.connectionState === 'connected') {
+                updateStatus("✅ متصل بالبث عبر Xirsys TURN!", false);
+                reconnectAttempts = 0;
+            } else if (peerConnection.connectionState === 'failed') {
+                updateStatus("❌ فشل الاتصال. تأكد من اتصال الانترنت.", true);
+            }
+        };
+        
+        peerConnection.oniceconnectionstatechange = () => {
+            if (peerConnection.iceConnectionState === 'checking') {
+                updateStatus("🔄 جاري الاتصال عبر Xirsys TURN...", false);
+            } else if (peerConnection.iceConnectionState === 'connected') {
+                updateStatus("✅ تم إنشاء الاتصال عبر Xirsys TURN!", false);
+            } else if (peerConnection.iceConnectionState === 'failed') {
+                updateStatus("⚠️ جاري إعادة المحاولة عبر Xirsys TURN...", false);
             }
         };
         
         peerConnection.onicecandidate = (event) => {
             if (event.candidate) {
-                const candidateRef = ref(db, `rooms/${roomId}/viewerCandidate`);
+                const candidateRef = ref(db, `rooms/${roomId}/guests/${myGuestId}/guestCandidates/${Date.now()}`);
                 set(candidateRef, event.candidate.toJSON());
             }
         };
         
-        peerConnection.oniceconnectionstatechange = () => {
-            console.log("ICE状態:", peerConnection.iceConnectionState);
-            if (peerConnection.iceConnectionState === 'connected') {
-                updateStatus("✅ تم الاتصال بالمضيف!");
-            } else if (peerConnection.iceConnectionState === 'failed') {
-                updateStatus("⚠️ فشل الاتصال، جاري إعادة المحاولة...");
-                setTimeout(() => startViewerConnection(), 3000);
-            }
-        };
+        await set(ref(db, `rooms/${roomId}/guests/${myGuestId}/joinedAt`), Date.now());
         
-        // إنشاء عرض للمضيف
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        
-        // إرسال العرض للمضيف
-        await set(ref(db, `rooms/${roomId}/viewerOffer`), {
-            type: offer.type,
-            sdp: offer.sdp
-        });
-        console.log("✅ تم إرسال العرض للمضيف");
-        
-        // الاستماع لرد المضيف
-        const hostAnswerRef = ref(db, `rooms/${roomId}/hostAnswer`);
-        onValue(hostAnswerRef, async (snapshot) => {
-            const answer = snapshot.val();
-            if (answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                console.log("✅ تم استلام الرد من المضيف");
+        // الاستماع لعرض المضيف
+        onValue(ref(db, `rooms/${roomId}/guests/${myGuestId}/offer`), async (snapshot) => {
+            const offer = snapshot.val();
+            if (offer && peerConnection && peerConnection.signalingState === 'stable') {
+                try {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    await update(ref(db, `rooms/${roomId}/guests/${myGuestId}`), {
+                        answer: { type: answer.type, sdp: answer.sdp }
+                    });
+                } catch (error) {
+                    console.error("Error setting answer:", error);
+                }
             }
         });
         
-        // الاستماع للمرشحات
-        const hostCandidateRef = ref(db, `rooms/${roomId}/hostCandidate`);
-        onValue(hostCandidateRef, (snapshot) => {
-            const candidate = snapshot.val();
-            if (candidate && peerConnection && peerConnection.remoteDescription) {
-                peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(console.error);
+        // الاستماع لمرشحات المضيف
+        onChildAdded(ref(db, `rooms/${roomId}/guests/${myGuestId}/hostCandidates`), (snapshot) => {
+            if (snapshot.exists() && peerConnection && peerConnection.remoteDescription) {
+                peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(console.error);
             }
         });
-        
-    } catch (error) {
-        console.error("خطأ في اتصال المشاهد:", error);
-        updateStatus(`❌ فشل الاتصال: ${error.message}`, true);
     }
-}
-
-// تنظيف عند الإغلاق
-window.addEventListener('beforeunload', async () => {
-    if (roomId && isHost) {
-        try {
-            await remove(ref(db, `rooms/${roomId}`));
-        } catch(e) {}
+    
+    function switchScreen(hide, show) {
+        hide.classList.remove('active');
+        show.classList.add('active');
     }
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-    }
-    if (peerConnection) {
-        peerConnection.close();
-    }
-});
-
-console.log("✅ التطبيق جاهز - يستخدم خوادم Xirsys TURN (يدعم 4G)");
-console.log(`📋 بيانات Xirsys: ${XIRSYS_USERNAME} / ${XIRSYS_CHANNEL}`);
+    
+    // التحقق من نوع الشبكة
+    setInterval(checkNetworkType, 3000);
+    checkNetworkType();
+    
+    console.log("✅ التطبيق جاهز - يستخدم خوادم Xirsys TURN (يدعم 4G/5G/WiFi)");
+    console.log(`📡 بيانات Xirsys - Username: ${XIRSYS_USERNAME}, Channel: ${XIRSYS_CHANNEL}`);
 </script>
 </body>
 </html>
