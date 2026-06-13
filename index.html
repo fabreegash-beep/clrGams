@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>سينما لايف - بث احترافي | يدعم بيانات الجوال 4G</title>
+<title>سينما لايف - بث احترافي | يدعم 4G</title>
 <style>
     * {
         margin: 0;
@@ -126,6 +126,12 @@
         color: #2e7d32;
     }
 
+    .status.warning {
+        background: #fff3e0;
+        border-right-color: #ff9800;
+        color: #e65100;
+    }
+
     .control-box {
         background: #f8f9fa;
         padding: 20px;
@@ -198,6 +204,18 @@
     .hidden {
         display: none;
     }
+
+    .video-preview {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        width: 120px;
+        height: 90px;
+        border-radius: 8px;
+        border: 2px solid white;
+        z-index: 10;
+        background: #000;
+    }
 </style>
 </head>
 <body>
@@ -208,7 +226,7 @@
         <h1>🎬 سينما لايف برو</h1>
         <div class="warning-banner">
             📱 نظام بث احترافي - يدعم جميع شبكات 4G و 5G و WiFi<br>
-            ✨ يعمل عبر خوادم Xirsys TURN العالمية
+            ✨ يعمل عبر خوادم TURN العالمية
         </div>
         <button id="btn-host" class="btn">🚀 إنشاء غرفة بث (مضيف)</button>
         <div style="text-align: center; margin: 15px 0; color: #999;">أو</div>
@@ -267,48 +285,43 @@
     const db = getDatabase(app);
 
     // ==============================================
-    // 🔥 بيانات Xirsys الخاصة بك - تم دمجها مباشرة
+    // 🔥 بيانات Xirsys الخاصة بك
     // ==============================================
     const XIRSYS_USERNAME = "anis";
     const XIRSYS_CREDENTIAL = "e106fc76-672c-11f1-8b93-0242ac130002";
-    const XIRSYS_CHANNEL = "MyFirstApp";
 
-    // خوادم TURN/STUN المحسنة - مع دمج Xirsys
+    // خوادم TURN محسنة بشدة لشبكات 4G
     const getIceServers = () => {
         return {
             iceServers: [
-                // خوادم STUN أساسية
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
-                { urls: 'stun:stun.xirsys.com' },
                 
-                // 🔥 خادم Xirsys TURN الرئيسي (يعمل على 4G)
+                // خادم Xirsys TURN الرئيسي
                 {
                     username: XIRSYS_USERNAME,
                     credential: XIRSYS_CREDENTIAL,
                     urls: [
-                        "turn:turn.xirsys.com:80?transport=udp",
-                        "turn:turn.xirsys.com:3478?transport=udp",
-                        "turn:turn.xirsys.com:80?transport=tcp",
-                        "turn:turn.xirsys.com:3478?transport=tcp",
                         "turns:turn.xirsys.com:443?transport=tcp",
-                        "turns:turn.xirsys.com:5349?transport=tcp"
+                        "turns:turn.xirsys.com:5349?transport=tcp",
+                        "turn:turn.xirsys.com:80?transport=udp",
+                        "turn:turn.xirsys.com:3478?transport=udp"
                     ]
                 },
                 
-                // خوادم احتياطية (في حال فشل Xirsys)
+                // خوادم احتياطية قوية
                 {
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:turn.webrtc4all.com:3478',
+                    username: 'webrtc4all',
+                    credential: 'webrtc4all'
                 },
                 {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
+                    urls: 'turn:freeturn.net:3478',
+                    username: 'free',
+                    credential: 'free'
                 }
             ],
             iceTransportPolicy: 'all',
@@ -327,6 +340,7 @@
     let isHost = false;
     let myGuestId = null;
     let reconnectAttempts = 0;
+    let restartIceTimeout = null;
 
     // عناصر DOM
     const welcomeScreen = document.getElementById('welcome-screen');
@@ -348,25 +362,25 @@
         const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
         if (connection) {
             const type = connection.effectiveType || 'unknown';
-            networkBadge.innerHTML = `📡 ${type} | Xirsys TURN`;
+            networkBadge.innerHTML = `📡 ${type} | TURN Active`;
             return type;
         }
-        networkBadge.innerHTML = `📡 Xirsys TURN`;
+        networkBadge.innerHTML = `📡 TURN Active`;
         return 'unknown';
     }
 
-    function updateStatus(message, isError = false) {
+    function updateStatus(message, type = 'info') {
         statusText.innerHTML = message;
-        statusText.className = `status ${isError ? 'error' : 'success'}`;
-        console.log(`[${isError ? 'ERROR' : 'INFO'}] ${message}`);
-        
-        if (isError && !isHost && reconnectAttempts < 3) {
-            setTimeout(() => {
-                reconnectAttempts++;
-                updateStatus(`🔄 محاولة إعادة الاتصال (${reconnectAttempts}/3)...`, false);
-                setupWebrtcAsGuest();
-            }, 3000);
+        if (type === 'error') {
+            statusText.className = 'status error';
+        } else if (type === 'success') {
+            statusText.className = 'status success';
+        } else if (type === 'warning') {
+            statusText.className = 'status warning';
+        } else {
+            statusText.className = 'status';
         }
+        console.log(`[${type.toUpperCase()}] ${message}`);
     }
 
     function updateGuestCount(count) {
@@ -375,6 +389,10 @@
 
     // تنظيف الموارد
     async function cleanupConnection() {
+        if (restartIceTimeout) {
+            clearTimeout(restartIceTimeout);
+            restartIceTimeout = null;
+        }
         if (videoStream) {
             videoStream.getTracks().forEach(track => track.stop());
             videoStream = null;
@@ -397,11 +415,13 @@
     async function addTrackToAllConnections(track, stream) {
         for (let guestId in hostPeerConnections) {
             const pc = hostPeerConnections[guestId];
-            const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
-            if (sender) {
-                await sender.replaceTrack(track);
-            } else {
-                pc.addTrack(track, stream);
+            if (pc && pc.connectionState !== 'closed') {
+                const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
+                if (sender) {
+                    await sender.replaceTrack(track);
+                } else {
+                    pc.addTrack(track, stream);
+                }
             }
         }
     }
@@ -418,7 +438,7 @@
             hostControlArea.classList.remove('hidden');
             remoteVideo.style.display = "block";
             
-            updateStatus(`✅ تم إنشاء الغرفة رقم ${roomId}. شارك الكود مع أصدقائك!`, false);
+            updateStatus(`✅ تم إنشاء الغرفة رقم ${roomId}. شارك الكود مع أصدقائك!`, 'success');
             
             const roomRef = ref(db, `rooms/${roomId}`);
             await remove(roomRef);
@@ -437,12 +457,13 @@
             onChildAdded(ref(db, `rooms/${roomId}/guests`), (snapshot) => {
                 const guestId = snapshot.key;
                 if (!hostPeerConnections[guestId]) {
+                    updateStatus(`👤 ضيف جديد انضم للغرفة! جاري الاتصال...`, 'info');
                     setupWebrtcForGuest(guestId);
                 }
             });
             
         } catch (error) {
-            updateStatus(`❌ خطأ: ${error.message}`, true);
+            updateStatus(`❌ خطأ: ${error.message}`, 'error');
         }
     });
 
@@ -450,19 +471,41 @@
         const pc = new RTCPeerConnection(getIceServers());
         hostPeerConnections[guestId] = pc;
         
+        // إضافة المسارات الحالية
         if (videoStream) {
             const videoTrack = videoStream.getVideoTracks()[0];
-            if (videoTrack) pc.addTrack(videoTrack, videoStream);
+            if (videoTrack) {
+                pc.addTrack(videoTrack, videoStream);
+                updateStatus(`📹 تم إضافة مسار الفيديو للضيف`, 'info');
+            }
         }
         if (audioStream) {
             const audioTrack = audioStream.getAudioTracks()[0];
-            if (audioTrack) pc.addTrack(audioTrack, audioStream);
+            if (audioTrack) {
+                pc.addTrack(audioTrack, audioStream);
+                updateStatus(`🎵 تم إضافة مسار الصوت للضيف`, 'info');
+            }
         }
         
         pc.onicecandidate = (event) => {
             if (event.candidate) {
                 const candidateRef = ref(db, `rooms/${roomId}/guests/${guestId}/hostCandidates/${Date.now()}`);
                 set(candidateRef, event.candidate.toJSON());
+            }
+        };
+        
+        pc.oniceconnectionstatechange = () => {
+            console.log(`[Host-${guestId}] ICE State: ${pc.iceConnectionState}`);
+            if (pc.iceConnectionState === 'connected') {
+                updateStatus(`✅ تم اتصال ضيف عبر TURN!`, 'success');
+            } else if (pc.iceConnectionState === 'failed') {
+                updateStatus(`⚠️ فشل اتصال TURN مع ضيف، جاري إعادة المحاولة...`, 'warning');
+                // إعادة محاولة الاتصال
+                setTimeout(() => {
+                    if (hostPeerConnections[guestId]) {
+                        hostPeerConnections[guestId].restartIce();
+                    }
+                }, 2000);
             }
         };
         
@@ -492,30 +535,43 @@
         });
         
         if ((videoStream && videoStream.getVideoTracks().length) || (audioStream && audioStream.getAudioTracks().length)) {
-            setTimeout(() => pc.dispatchEvent(new Event('negotiationneeded')), 100);
+            setTimeout(() => pc.dispatchEvent(new Event('negotiationneeded')), 500);
         }
     }
 
     // مشاركة الشاشة
     btnShareScreen.addEventListener('click', async () => {
         try {
-            updateStatus("🖥️ جاري مشاركة الشاشة عبر Xirsys TURN...", false);
+            updateStatus("🖥️ جاري مشاركة الشاشة...", 'info');
             videoStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { frameRate: 30, width: 1280, height: 720 },
+                video: { 
+                    frameRate: { ideal: 30 },
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
                 audio: false
             });
             
             const videoTrack = videoStream.getVideoTracks()[0];
             await addTrackToAllConnections(videoTrack, videoStream);
-            updateStatus("✅ جاري بث الشاشة لجميع المشاهدين (عبر Xirsys TURN - يدعم 4G)!", false);
+            updateStatus("✅ جاري بث الشاشة لجميع المشاهدين (عبر TURN - يدعم 4G)!", 'success');
             btnShareScreen.textContent = "✅ الشاشة قيد البث";
             
+            // إظهار معاينة للمضيف
+            const previewVideo = document.createElement('video');
+            previewVideo.srcObject = videoStream;
+            previewVideo.autoplay = true;
+            previewVideo.muted = true;
+            previewVideo.className = 'video-preview';
+            document.querySelector('.viewer-container').appendChild(previewVideo);
+            
             videoTrack.onended = () => {
-                updateStatus("⚠️ توقفت مشاركة الشاشة", true);
+                updateStatus("⚠️ توقفت مشاركة الشاشة", 'warning');
                 btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
+                if (previewVideo) previewVideo.remove();
             };
         } catch (error) {
-            updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, true);
+            updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, 'error');
         }
     });
     
@@ -524,11 +580,11 @@
         if (audioStream) {
             audioStream.getTracks().forEach(t => t.stop());
             audioStream = null;
-            updateStatus("🔇 تم إيقاف بث الصوت", false);
+            updateStatus("🔇 تم إيقاف بث الصوت", 'info');
             btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
         } else {
             try {
-                updateStatus("🎵 جاري تشغيل صوت الجهاز...", false);
+                updateStatus("🎵 جاري تشغيل صوت الجهاز...", 'info');
                 const tempStream = await navigator.mediaDevices.getDisplayMedia({
                     video: { width: 1, height: 1 },
                     audio: true
@@ -538,7 +594,7 @@
                 if (audioTrack) {
                     audioStream = new MediaStream([audioTrack]);
                     await addTrackToAllConnections(audioTrack, audioStream);
-                    updateStatus("✅ يتم بث صوت الجهاز لجميع المشاهدين (عبر Xirsys TURN)!", false);
+                    updateStatus("✅ يتم بث صوت الجهاز لجميع المشاهدين (عبر TURN)!", 'success');
                     btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
                     
                     audioTrack.onended = () => {
@@ -548,12 +604,12 @@
                 }
                 tempStream.getVideoTracks().forEach(t => t.stop());
             } catch (error) {
-                updateStatus(`❌ فشل تشغيل الصوت: ${error.message}`, true);
+                updateStatus(`❌ فشل تشغيل الصوت: ${error.message}`, 'error');
             }
         }
     });
     
-    // ============== المشاهد ==============
+    // ============== المشاهد (الضيف) ==============
     btnJoin.addEventListener('click', async () => {
         try {
             await cleanupConnection();
@@ -561,22 +617,22 @@
             roomId = roomCodeInput.value.trim();
             
             if (!roomId || roomId.length !== 4) {
-                updateStatus("⚠️ الكود يجب أن يكون 4 أرقام", true);
+                updateStatus("⚠️ الكود يجب أن يكون 4 أرقام", 'error');
                 return;
             }
             
-            updateStatus("🔍 جاري البحث عن الغرفة...", false);
+            updateStatus("🔍 جاري البحث عن الغرفة...", 'info');
             
             const roomSnapshot = await get(ref(db, `rooms/${roomId}`));
             
             if (!roomSnapshot.exists()) {
-                updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
+                updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", 'error');
                 return;
             }
             
             const guestsData = roomSnapshot.val().guests || {};
             if (Object.keys(guestsData).length >= MAX_GUESTS) {
-                updateStatus(`❌ الغرفة مكتملة (الحد الأقصى ${MAX_GUESTS})`, true);
+                updateStatus(`❌ الغرفة مكتملة (الحد الأقصى ${MAX_GUESTS})`, 'error');
                 return;
             }
             
@@ -585,7 +641,7 @@
             remoteVideo.style.display = "block";
             hostControlArea.classList.add('hidden');
             
-            updateStatus("📡 جاري الاتصال بالبث عبر خوادم Xirsys TURN (تدعم 4G)...", false);
+            updateStatus("📡 جاري الاتصال بالبث عبر خوادم TURN (تدعم 4G)...", 'info');
             
             myGuestId = 'guest_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
             const myGuestRef = ref(db, `rooms/${roomId}/guests/${myGuestId}`);
@@ -594,7 +650,7 @@
             await setupWebrtcAsGuest();
             
         } catch (error) {
-            updateStatus(`❌ خطأ: ${error.message}`, true);
+            updateStatus(`❌ خطأ: ${error.message}`, 'error');
         }
     });
     
@@ -602,42 +658,69 @@
         const iceConfig = getIceServers();
         peerConnection = new RTCPeerConnection(iceConfig);
         
+        // إعدادات إضافية لتحسين الاتصال على 4G
+        peerConnection.addEventListener('icecandidateerror', (event) => {
+            console.log('ICE Candidate Error:', event);
+            updateStatus("⚠️ مشكلة في الاتصال، جاري إعادة المحاولة...", 'warning');
+        });
+        
         peerConnection.ontrack = (event) => {
+            console.log("📺 تم استلام مسار:", event.track.kind);
             if (event.streams && event.streams[0]) {
                 if (remoteVideo.srcObject) {
                     const existingStream = remoteVideo.srcObject;
                     event.streams[0].getTracks().forEach(track => {
                         if (!existingStream.getTracks().find(t => t.id === track.id)) {
                             existingStream.addTrack(track);
+                            console.log(`➕ تم إضافة مسار ${track.kind}`);
                         }
                     });
                 } else {
                     remoteVideo.srcObject = event.streams[0];
+                    console.log("🎬 تم تعيين مصدر الفيديو");
                 }
-                remoteVideo.play().catch(() => {});
                 
-                const hasVideo = remoteVideo.srcObject.getVideoTracks().length > 0;
-                const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
-                updateStatus(`✅ تم الاتصال عبر Xirsys TURN! ${hasVideo ? 'فيديو' : ''} ${hasAudio ? '+ صوت' : ''}`, false);
+                remoteVideo.play().then(() => {
+                    const hasVideo = remoteVideo.srcObject.getVideoTracks().length > 0;
+                    const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
+                    if (hasVideo) {
+                        updateStatus(`🎬 تم الاتصال! يتم استلام البث الآن (عبر TURN)`, 'success');
+                    } else {
+                        updateStatus(`🎵 يتم استلام الصوت فقط... انتظر بدء مشاركة الشاشة`, 'info');
+                    }
+                }).catch((e) => {
+                    console.log("Video play error:", e);
+                    updateStatus("⚠️ اضغط على الفيديو لبدء التشغيل", 'warning');
+                });
             }
         };
         
         peerConnection.onconnectionstatechange = () => {
+            console.log(`Connection State: ${peerConnection.connectionState}`);
             if (peerConnection.connectionState === 'connected') {
-                updateStatus("✅ متصل بالبث عبر Xirsys TURN!", false);
+                updateStatus("✅ متصل بالبث عبر TURN!", 'success');
                 reconnectAttempts = 0;
             } else if (peerConnection.connectionState === 'failed') {
-                updateStatus("❌ فشل الاتصال. تأكد من اتصال الانترنت.", true);
+                updateStatus("❌ فشل الاتصال. تأكد من اتصال الانترنت.", 'error');
+                if (reconnectAttempts < 3) {
+                    reconnectAttempts++;
+                    updateStatus(`🔄 إعادة محاولة الاتصال (${reconnectAttempts}/3)...`, 'warning');
+                    setTimeout(() => setupWebrtcAsGuest(), 3000);
+                }
             }
         };
         
         peerConnection.oniceconnectionstatechange = () => {
+            console.log(`ICE State: ${peerConnection.iceConnectionState}`);
             if (peerConnection.iceConnectionState === 'checking') {
-                updateStatus("🔄 جاري الاتصال عبر Xirsys TURN...", false);
+                updateStatus("🔄 جاري الاتصال عبر TURN...", 'info');
             } else if (peerConnection.iceConnectionState === 'connected') {
-                updateStatus("✅ تم إنشاء الاتصال عبر Xirsys TURN!", false);
+                updateStatus("✅ تم إنشاء الاتصال عبر TURN!", 'success');
             } else if (peerConnection.iceConnectionState === 'failed') {
-                updateStatus("⚠️ جاري إعادة المحاولة عبر Xirsys TURN...", false);
+                updateStatus("⚠️ فشل اتصال TURN، جاري إعادة المحاولة...", 'warning');
+                if (peerConnection) {
+                    peerConnection.restartIce();
+                }
             }
         };
         
@@ -661,6 +744,7 @@
                     await update(ref(db, `rooms/${roomId}/guests/${myGuestId}`), {
                         answer: { type: answer.type, sdp: answer.sdp }
                     });
+                    updateStatus("✅ تم إرسال الرد إلى المضيف", 'success');
                 } catch (error) {
                     console.error("Error setting answer:", error);
                 }
@@ -684,8 +768,8 @@
     setInterval(checkNetworkType, 3000);
     checkNetworkType();
     
-    console.log("✅ التطبيق جاهز - يستخدم خوادم Xirsys TURN (يدعم 4G/5G/WiFi)");
-    console.log(`📡 بيانات Xirsys - Username: ${XIRSYS_USERNAME}, Channel: ${XIRSYS_CHANNEL}`);
+    console.log("✅ التطبيق جاهز - يستخدم خوادم TURN محسنة (يدعم 4G/5G/WiFi)");
+    console.log(`📡 بيانات Xirsys - Username: ${XIRSYS_USERNAME}`);
 </script>
 </body>
 </html>
