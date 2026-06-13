@@ -2,125 +2,108 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>سينما لايف - بث مباشر جماعي + دردشة صوتية</title>
     <style>
         :root {
             --bg-gradient: linear-gradient(135deg, #050a14, #0f172f, #050a14);
-            --glass-bg: rgba(10, 20, 35, 0.8);
-            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-bg: rgba(10, 20, 35, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.12);
             --accent-color: #00f2fe;
-            --accent-glow: rgba(0, 242, 254, 0.3);
             --text-color: #f0f3fa;
             --card-bg: rgba(0, 0, 0, 0.5);
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, 'Tahoma', sans-serif; }
-        body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 20px; }
-        .container { width: 100%; max-width: 1400px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 32px; padding: 20px 24px; transition: all 0.3s; box-shadow: 0 25px 45px rgba(0,0,0,0.4); }
-        h1 { font-size: 1.7rem; font-weight: 700; background: linear-gradient(135deg, #fff, #00f2fe); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 8px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 16px; }
+        .container { width: 100%; max-width: 1300px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 32px; padding: 20px; transition: all 0.3s; }
+        h1 { font-size: 1.5rem; font-weight: 700; background: linear-gradient(135deg, #fff, #00f2fe); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 8px; }
         .screen { display: none; animation: fadeIn 0.3s ease; }
         .screen.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .btn { background: linear-gradient(95deg, #2a3b6e, #1a2a4f); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 10px 20px; font-size: 0.95rem; font-weight: 600; border-radius: 40px; cursor: pointer; transition: all 0.2s ease; backdrop-filter: blur(4px); margin-top: 8px; }
+        .btn { background: linear-gradient(95deg, #2a3b6e, #1a2a4f); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 12px 24px; font-size: 1rem; font-weight: 600; border-radius: 40px; cursor: pointer; transition: all 0.2s ease; margin-top: 8px; }
         .btn:hover { transform: translateY(-2px); background: linear-gradient(95deg, #3f5a9c, #2a3f72); border-color: var(--accent-color); }
-        .btn-primary { background: linear-gradient(95deg, #0077ff, #00c3ff); border: none; }
-        .btn-danger { background: linear-gradient(95deg, #e2584a, #b63e2e); }
+        .btn-primary { background: linear-gradient(95deg, #0077ff, #00c3ff); }
         .btn-success { background: linear-gradient(95deg, #1f9e6e, #0e7a52); }
         .btn-warning { background: linear-gradient(95deg, #e98a3e, #c96b1a); }
-        .btn-mic { background: linear-gradient(95deg, #4a5b8c, #2f3f6e); }
-        .input-group { background: rgba(0,0,0,0.5); border-radius: 60px; padding: 4px; display: flex; gap: 10px; margin-top: 16px; border: 1px solid var(--glass-border); }
-        input { background: transparent; border: none; padding: 12px 18px; color: white; font-size: 1rem; outline: none; flex: 1; text-align: center; font-weight: 500; }
-        .divider { margin: 24px 0; color: #7a8bbf; font-size: 0.85rem; display: flex; align-items: center; gap: 12px; }
+        .btn-danger { background: linear-gradient(95deg, #e2584a, #b63e2e); }
+        .input-group { background: rgba(0,0,0,0.5); border-radius: 60px; padding: 4px; display: flex; gap: 10px; margin-top: 16px; border: 1px solid var(--glass-border); flex-wrap: wrap; }
+        input { background: transparent; border: none; padding: 12px 18px; color: white; font-size: 1rem; outline: none; flex: 1; min-width: 150px; text-align: center; }
+        .divider { margin: 20px 0; color: #7a8bbf; display: flex; align-items: center; gap: 12px; }
         .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.15); }
-        .status { font-size: 0.85rem; background: rgba(0,0,0,0.55); border-radius: 24px; padding: 12px 18px; margin: 15px 0; border-right: 3px solid var(--accent-color); line-height: 1.4; font-family: monospace; }
-        .participants-panel { background: var(--card-bg); border-radius: 28px; padding: 18px; margin-top: 20px; border: 1px solid rgba(0,242,254,0.2); }
-        .participants-grid { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; max-height: 180px; overflow-y: auto; padding: 6px; }
-        .participant-card { background: rgba(30, 45, 80, 0.8); backdrop-filter: blur(4px); border-radius: 48px; padding: 8px 18px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,0.15); transition: all 0.1s; }
-        .participant-name { font-weight: bold; color: #b9f2ff; }
-        .badge-host { background: #e67e22; border-radius: 20px; padding: 2px 10px; font-size: 0.7rem; margin-right: 6px; }
-        .badge-guest { background: #2c3e66; border-radius: 20px; padding: 2px 10px; font-size: 0.7rem; }
-        .mic-indicator { background: #00f2fe20; border-radius: 20px; padding: 2px 8px; font-size: 0.7rem; margin-right: 6px; color: #00f2fe; }
-        .media-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 15px 0 8px; }
-        .viewer-container { width: 100%; margin-top: 20px; border-radius: 28px; overflow: hidden; background: #000000; border: 1px solid var(--glass-border); position: relative; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.6); }
-        video { width: 100%; max-height: 550px; object-fit: contain; background: #000; display: block; }
-        .info-tip { font-size: 0.7rem; color: #8e9fc3; text-align: center; margin-top: 12px; }
-        .voice-section { margin-top: 16px; background: rgba(0,0,0,0.3); border-radius: 60px; padding: 8px 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
-        @media (max-width: 700px) {
+        .status { font-size: 0.85rem; background: rgba(0,0,0,0.55); border-radius: 20px; padding: 10px 16px; margin: 12px 0; border-right: 3px solid var(--accent-color); }
+        .participants-panel { background: var(--card-bg); border-radius: 24px; padding: 16px; margin-top: 16px; border: 1px solid rgba(0,242,254,0.2); }
+        .participants-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; max-height: 150px; overflow-y: auto; padding: 6px; }
+        .participant-card { background: rgba(30, 45, 80, 0.8); border-radius: 40px; padding: 6px 16px; display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+        .badge-host { background: #e67e22; border-radius: 20px; padding: 2px 10px; font-size: 0.7rem; }
+        .media-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0; }
+        .viewer-container { width: 100%; margin-top: 16px; border-radius: 24px; overflow: hidden; background: #000; border: 1px solid var(--glass-border); }
+        video { width: 100%; max-height: 500px; object-fit: contain; background: #000; display: block; }
+        .info-tip { font-size: 0.7rem; color: #8e9fc3; text-align: center; margin-top: 10px; }
+        .voice-bar { background: rgba(0,0,0,0.4); border-radius: 60px; padding: 8px 16px; margin-top: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+        @media (max-width: 600px) {
             .container { padding: 16px; }
-            .btn { padding: 8px 14px; font-size: 0.8rem; }
-            .participant-card { padding: 5px 12px; }
+            .btn { padding: 8px 16px; font-size: 0.85rem; }
         }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #111; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: #00f2fe; border-radius: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <!-- شاشة الترحيب -->
     <div id="welcome-screen" class="screen active">
-        <h1>🎬 سينما لايف · بث جماعي + دردشة صوتية</h1>
-        <p style="margin-bottom: 20px; opacity: 0.8;">المضيف يشارك الشاشة والصوت | جميع الضيوف يتحدثون عبر الميكروفون</p>
-        <button id="btn-host" class="btn btn-primary">🚀 إنشاء غرفة (المضيف)</button>
-        <div class="divider">أو انضم لغرفة موجودة</div>
+        <h1>🎬 سينما لايف · بث مباشر + دردشة صوتية</h1>
+        <p style="margin: 8px 0 16px; opacity:0.8;">المضيف يشارك الشاشة | الجميع يتحدثون بالميكروفون</p>
+        <button id="btn-host" class="btn btn-primary">🚀 إنشاء غرفة جديدة</button>
+        <div class="divider">أو انضم إلى غرفة</div>
         <div class="input-group">
-            <input type="text" id="room-code-input" placeholder="كود الغرفة (4 أرقام)" maxlength="4" inputmode="numeric" style="text-align:center; letter-spacing:2px;">
+            <input type="text" id="room-code-input" placeholder="كود الغرفة (4 أرقام)" maxlength="4" inputmode="numeric">
+            <button id="btn-join" class="btn">👥 دخول</button>
         </div>
-        <button id="btn-join" class="btn">👥 دخول للمشاهدة والمحادثة الصوتية</button>
-        <div class="info-tip">🎤 الجميع يتحدثون مع بعضهم مباشرة (دردشة صوتية جماعية) + بث شاشة المضيف</div>
+        <div class="info-tip">💡 بعد الدخول، سيطلب المتصفح إذن الميكروفون - وافق لتتمكن من التحدث</div>
     </div>
 
-    <!-- شاشة الغرفة -->
     <div id="room-screen" class="screen">
-        <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap;">
-            <h1>🏠 غرفة: <span id="display-room-code" style="color:var(--accent-color); background:#00000055; padding:4px 12px; border-radius:40px;">----</span></h1>
-            <button id="btn-leave-room" class="btn" style="background:#c0392b80;">🚪 مغادرة</button>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <h1>🏠 غرفة: <span id="display-room-code" style="color:#00f2fe;">----</span></h1>
+            <button id="btn-leave-room" class="btn" style="background:#c0392b99;">🚪 مغادرة</button>
         </div>
-        <div id="status-text" class="status">⚡ تهيئة البث والدردشة الصوتية...</div>
+        <div id="status-text" class="status">⚡ جاري التهيئة...</div>
 
-        <!-- منطقة تحكم المضيف (شاشة + صوت النظام) -->
         <div id="host-control-area" style="display: none;">
             <div class="media-buttons">
                 <button id="btn-share-screen" class="btn btn-success">🖥️ مشاركة الشاشة</button>
-                <button id="btn-share-system-audio" class="btn btn-warning">🔊 صوت النظام (منفصل)</button>
+                <button id="btn-share-audio" class="btn btn-warning">🔊 صوت النظام</button>
             </div>
-            <div class="info-tip">💡 شارك الشاشة أولاً ليظهر البث للضيوف فوراً، ثم أضف صوت النظام إن أردت</div>
+            <div class="info-tip">📌 اضغط "مشاركة الشاشة" أولاً - سيظهر البث فوراً للضيوف</div>
         </div>
 
-        <!-- اسم المستخدم -->
-        <div class="input-group" style="margin-top: 12px;">
-            <input type="text" id="my-name-input" placeholder="👤 اسمك (يظهر للجميع)" maxlength="20" style="text-align:right;">
-            <button id="btn-set-name" class="btn" style="padding: 8px 18px;">تسجيل</button>
+        <div class="input-group">
+            <input type="text" id="my-name-input" placeholder="👤 اسمك" maxlength="20" style="text-align:right;">
+            <button id="btn-set-name" class="btn">تسجيل الاسم</button>
         </div>
 
-        <!-- الدردشة الصوتية: ميكروفون وكتم -->
-        <div class="voice-section">
-            <div style="display: flex; gap: 12px; align-items: center;">
-                <button id="btn-mic-toggle" class="btn btn-mic">🎤 تفعيل الميكروفون</button>
-                <span id="mic-status" style="font-size:0.8rem; background:#00000066; padding:4px 12px; border-radius:40px;">🔴 ميكروفون مغلق</span>
-            </div>
-            <div class="info-tip">🗣️ اضغط تفعيل الميكروفون لتتحدث مع الجميع (دردشة صوتية جماعية)</div>
+        <div class="voice-bar">
+            <button id="btn-mic-toggle" class="btn" style="background:#4a5b8c;">🎤 تفعيل الميكروفون</button>
+            <span id="mic-status" style="font-size:0.8rem;">🔴 الميكروفون مغلق</span>
+            <span class="info-tip" style="margin:0;">🗣️ تحدث مع الجميع في الغرفة</span>
         </div>
 
-        <!-- لوحة المشاركين -->
         <div class="participants-panel">
-            <div style="display: flex; gap: 12px;"><span>👥 المتصلون:</span><span id="participants-count" style="background:#00f2fe20; padding:2px 12px; border-radius:30px;">0</span></div>
-            <div id="participants-list" class="participants-grid"><div style="color:#aaa;">جاري التحميل...</div></div>
+            <div><span>👥 المتصلون: </span><span id="participants-count" style="background:#00f2fe20; padding:2px 12px; border-radius:30px;">0</span></div>
+            <div id="participants-list" class="participants-grid">...</div>
         </div>
 
-        <!-- فيديو بث الشاشة من المضيف -->
         <div class="viewer-container">
-            <video id="remote-video" autoplay playsinline controls style="width:100%; background:#000;"></video>
+            <video id="remote-video" autoplay playsinline controls></video>
         </div>
-        <div id="video-hint" class="info-tip">📺 عند مشاركة المضيف للشاشة، سيظهر البث هنا تلقائياً</div>
+        <div class="info-tip" id="video-hint">📺 عند مشاركة المضيف للشاشة، سيظهر البث هنا تلقائياً</div>
     </div>
 </div>
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-    import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
+    import { getDatabase, ref, set, onValue, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
 
+    // Firebase config
     const firebaseConfig = {
         apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
         authDomain: "my-online-store-34f34.firebaseapp.com",
@@ -130,6 +113,7 @@
         messagingSenderId: "288655549705",
         appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
     };
+
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
@@ -138,28 +122,24 @@
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
             { urls: 'stun:stun.relay.metered.ca:80' },
             { urls: 'turn:relay.metered.ca:80', username: 'b12f3d7f4a5c3e8d9f0a1b2c', credential: 'd4e5f6g7h8i9j0k1l2m3' },
             { urls: 'turn:relay.metered.ca:443', username: 'b12f3d7f4a5c3e8d9f0a1b2c', credential: 'd4e5f6g7h8i9j0k1l2m3' }
-        ],
-        iceCandidatePoolSize: 10
+        ]
     };
 
-    // المتغيرات الأساسية
-    let peerConnection = null;          // اتصال WebRTC للمضيف (بث الشاشة/صوت النظام)
-    let voicePeerConnection = null;     // اتصال WebRTC منفصل للدردشة الصوتية (mesh بين جميع الأطراف)
+    let peerConnection = null;      // لبث الشاشة/صوت النظام
     let screenStream = null;
     let systemAudioStream = null;
-    let localMicStream = null;           // تيار ميكروفون المستخدم للدردشة الصوتية
+    let localMicStream = null;
     let isMicActive = false;
-    
     let roomId = null;
     let isHost = false;
     let myUserId = null;
     let myUserName = "مستخدم";
-    
-    // عناصر DOM
+    let voiceConnections = new Map();
+
+    // DOM elements
     const welcomeScreen = document.getElementById('welcome-screen');
     const roomScreen = document.getElementById('room-screen');
     const btnHost = document.getElementById('btn-host');
@@ -170,7 +150,7 @@
     const statusText = document.getElementById('status-text');
     const hostControlArea = document.getElementById('host-control-area');
     const btnShareScreen = document.getElementById('btn-share-screen');
-    const btnShareSystemAudio = document.getElementById('btn-share-system-audio');
+    const btnShareAudio = document.getElementById('btn-share-audio');
     const myNameInput = document.getElementById('my-name-input');
     const btnSetName = document.getElementById('btn-set-name');
     const participantsListDiv = document.getElementById('participants-list');
@@ -178,180 +158,189 @@
     const btnLeaveRoom = document.getElementById('btn-leave-room');
     const btnMicToggle = document.getElementById('btn-mic-toggle');
     const micStatusSpan = document.getElementById('mic-status');
-    
+
     function updateStatus(msg, isError = false) {
         statusText.innerHTML = msg;
         statusText.style.color = isError ? '#ff9e8f' : '#cbd5e1';
-        console.log(`[STATUS] ${msg}`);
+        console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
     }
-    
-    function generateUserId() { return 'uid_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8); }
-    function escapeHtml(str) { return String(str).replace(/[&<>]/g, function(m){if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
-    
-    async function stopAllTracks() {
+
+    function generateUserId() {
+        return 'u_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    // تنظيف جميع التدفقات والاتصالات
+    async function cleanupAll() {
         if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
         if (systemAudioStream) { systemAudioStream.getTracks().forEach(t => t.stop()); systemAudioStream = null; }
         if (localMicStream) { localMicStream.getTracks().forEach(t => t.stop()); localMicStream = null; }
-    }
-    
-    async function closePeerConnections() {
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
-        if (voicePeerConnection) { voicePeerConnection.close(); voicePeerConnection = null; }
+        for (let pc of voiceConnections.values()) { pc.close(); }
+        voiceConnections.clear();
+        if (remoteVideo.srcObject) {
+            remoteVideo.srcObject.getTracks().forEach(t => t.stop());
+            remoteVideo.srcObject = null;
+        }
     }
-    
-    // ========== 1. بث الشاشة وصوت النظام (من المضيف إلى جميع الضيوف) ==========
-    async function setupHostScreenAudioConnection() {
+
+    // ========== بث الشاشة (المضيف) ==========
+    async function setupHostStreaming() {
         if (peerConnection) peerConnection.close();
         peerConnection = new RTCPeerConnection(iceServers);
         
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate && roomId) {
-                const candRef = ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}_${Math.random()}`);
-                set(candRef, event.candidate.toJSON());
+        peerConnection.onicecandidate = (e) => {
+            if (e.candidate && roomId) {
+                set(ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}_${Math.random()}`), e.candidate.toJSON());
             }
         };
         
-        // إضافة المسارات الموجودة حالياً (شاشة او صوت النظام)
-        if (screenStream) {
-            screenStream.getTracks().forEach(track => peerConnection.addTrack(track, screenStream));
-        }
-        if (systemAudioStream) {
-            systemAudioStream.getTracks().forEach(track => peerConnection.addTrack(track, systemAudioStream));
-        }
+        peerConnection.onnegotiationneeded = async () => {
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                await set(ref(db, `rooms/${roomId}/hostOffer`), { type: offer.type, sdp: offer.sdp });
+                updateStatus("🔄 تم تحديث عرض البث");
+            } catch (err) { console.error(err); }
+        };
+        
+        // إضافة المسارات إذا كانت موجودة
+        if (screenStream) screenStream.getTracks().forEach(t => peerConnection.addTrack(t, screenStream));
+        if (systemAudioStream) systemAudioStream.getTracks().forEach(t => peerConnection.addTrack(t, systemAudioStream));
         
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
-        await set(ref(db, `rooms/${roomId}/hostScreenOffer`), { type: offer.type, sdp: offer.sdp });
+        await set(ref(db, `rooms/${roomId}/hostOffer`), { type: offer.type, sdp: offer.sdp });
         
-        // استقبال إجابات الضيوف على بث الشاشة
-        onChildAdded(ref(db, `rooms/${roomId}/guestScreenAnswers`), async (snapshot) => {
-            const data = snapshot.val();
+        // استماع لإجابات الضيوف
+        onChildAdded(ref(db, `rooms/${roomId}/guestAnswers`), async (snap) => {
+            const data = snap.val();
             if (data && peerConnection && peerConnection.signalingState === 'have-local-offer') {
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(e=>console.warn);
             }
         });
         
-        onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snapshot) => {
-            if (peerConnection && snapshot.val()) peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(e=>console.warn);
+        onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snap) => {
+            if (snap.val() && peerConnection) {
+                peerConnection.addIceCandidate(new RTCIceCandidate(snap.val())).catch(e=>console.warn);
+            }
         });
-        updateStatus("✅ جاهز لبث الشاشة/الصوت للضيوف");
+        
+        updateStatus("✅ جاهز لبث الشاشة والصوت");
     }
     
-    async function renegotiateScreenAudio() {
-        if (!peerConnection || !isHost) return;
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        await set(ref(db, `rooms/${roomId}/hostScreenOffer`), { type: offer.type, sdp: offer.sdp });
-    }
-    
-    // مشاركة الشاشة (فيديو فقط)
     btnShareScreen.addEventListener('click', async () => {
-        if (!isHost) return updateStatus("فقط المضيف يشارك الشاشة", true);
+        if (!isHost) { updateStatus("فقط المضيف يمكنه مشاركة الشاشة", true); return; }
         if (screenStream) {
             screenStream.getTracks().forEach(t => t.stop());
             screenStream = null;
             btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
             updateStatus("تم إيقاف مشاركة الشاشة");
             if (peerConnection) {
-                const senders = peerConnection.getSenders().filter(s => s.track && s.track.kind === 'video');
+                const senders = peerConnection.getSenders().filter(s => s.track?.kind === 'video');
                 senders.forEach(s => peerConnection.removeTrack(s));
-                await renegotiateScreenAudio();
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                await set(ref(db, `rooms/${roomId}/hostOffer`), { type: offer.type, sdp: offer.sdp });
             }
             return;
         }
         try {
-            const newStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
-            screenStream = newStream;
-            const videoTrack = screenStream.getVideoTracks()[0];
+            const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+            screenStream = stream;
+            const videoTrack = stream.getVideoTracks()[0];
             videoTrack.onended = () => { if (screenStream) btnShareScreen.click(); };
-            if (peerConnection) {
-                peerConnection.addTrack(videoTrack, screenStream);
-                await renegotiateScreenAudio();
-            } else {
-                await setupHostScreenAudioConnection();
-                peerConnection.addTrack(videoTrack, screenStream);
-                await renegotiateScreenAudio();
-            }
+            if (!peerConnection) await setupHostStreaming();
+            peerConnection.addTrack(videoTrack, stream);
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            await set(ref(db, `rooms/${roomId}/hostOffer`), { type: offer.type, sdp: offer.sdp });
             btnShareScreen.textContent = "🛑 إيقاف الشاشة";
-            updateStatus("✅ يتم بث الشاشة الآن للضيوف (يظهر فوراً)");
-        } catch(err) { updateStatus(`خطأ مشاركة الشاشة: ${err.message}`, true); }
+            updateStatus("✅ يتم بث الشاشة الآن - الضيوف يرونها فوراً");
+        } catch(err) { updateStatus(`خطأ: ${err.message}`, true); }
     });
     
-    // مشاركة صوت النظام (منفصل)
-    btnShareSystemAudio.addEventListener('click', async () => {
+    btnShareAudio.addEventListener('click', async () => {
         if (!isHost) return;
         if (systemAudioStream) {
             systemAudioStream.getTracks().forEach(t => t.stop());
             systemAudioStream = null;
-            btnShareSystemAudio.textContent = "🔊 صوت النظام (منفصل)";
+            btnShareAudio.textContent = "🔊 صوت النظام";
             if (peerConnection) {
-                const audioSenders = peerConnection.getSenders().filter(s => s.track && s.track.kind === 'audio');
-                audioSenders.forEach(s => peerConnection.removeTrack(s));
-                await renegotiateScreenAudio();
+                const senders = peerConnection.getSenders().filter(s => s.track?.kind === 'audio');
+                senders.forEach(s => peerConnection.removeTrack(s));
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                await set(ref(db, `rooms/${roomId}/hostOffer`), { type: offer.type, sdp: offer.sdp });
             }
-            updateStatus("تم إيقاف بث صوت النظام");
+            updateStatus("تم إيقاف صوت النظام");
             return;
         }
         try {
             const tempStream = await navigator.mediaDevices.getDisplayMedia({ video: { width: 1, height: 1 }, audio: true });
             const audioTrack = tempStream.getAudioTracks()[0];
-            if (!audioTrack) throw new Error("اختر مشاركة الصوت في النافذة");
+            if (!audioTrack) throw new Error("لم يتم العثور على مسار صوت");
             systemAudioStream = new MediaStream([audioTrack]);
-            audioTrack.onended = () => { if (systemAudioStream) btnShareSystemAudio.click(); };
-            if (peerConnection) {
-                peerConnection.addTrack(audioTrack, systemAudioStream);
-                await renegotiateScreenAudio();
-            } else {
-                await setupHostScreenAudioConnection();
-                peerConnection.addTrack(audioTrack, systemAudioStream);
-                await renegotiateScreenAudio();
-            }
-            btnShareSystemAudio.textContent = "🔇 إيقاف صوت النظام";
+            audioTrack.onended = () => { if (systemAudioStream) btnShareAudio.click(); };
+            if (!peerConnection) await setupHostStreaming();
+            peerConnection.addTrack(audioTrack, systemAudioStream);
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            await set(ref(db, `rooms/${roomId}/hostOffer`), { type: offer.type, sdp: offer.sdp });
+            btnShareAudio.textContent = "🔇 إيقاف الصوت";
             updateStatus("🎵 يتم بث صوت النظام للضيوف");
             tempStream.getVideoTracks().forEach(t => t.stop());
-        } catch(err) { updateStatus(`فشل بث صوت النظام: ${err.message}`, true); }
+        } catch(err) { updateStatus(`فشل بث الصوت: ${err.message}`, true); }
     });
     
-    // ========== 2. الضيف يستقبل بث الشاشة/صوت النظام من المضيف ==========
-    async function setupGuestScreenReceiver() {
+    // ========== الضيف يستقبل البث ==========
+    async function setupGuestReceiving() {
         if (peerConnection) peerConnection.close();
         peerConnection = new RTCPeerConnection(iceServers);
         
-        peerConnection.ontrack = (event) => {
-            if (event.streams && event.streams[0]) {
-                if (remoteVideo.srcObject !== event.streams[0]) {
-                    remoteVideo.srcObject = event.streams[0];
-                    remoteVideo.play().catch(e=>console.log);
-                    const hasAudio = event.streams[0].getAudioTracks().length > 0;
-                    document.getElementById('video-hint').innerHTML = hasAudio ? "🎧 بث مباشر (فيديو + صوت النظام)" : "📺 بث الشاشة المباشر";
-                    updateStatus("✅ تم استقبال بث المضيف");
-                }
+        peerConnection.ontrack = (e) => {
+            if (e.streams && e.streams[0]) {
+                remoteVideo.srcObject = e.streams[0];
+                remoteVideo.play().catch(e=>console.log);
+                const hasAudio = e.streams[0].getAudioTracks().length > 0;
+                document.getElementById('video-hint').innerHTML = hasAudio ? "🎬 بث مباشر (فيديو + صوت)" : "📺 بث الشاشة المباشر";
+                updateStatus("✅ تم استلام بث المضيف");
             }
         };
         
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate && roomId && myUserId) {
-                const candRef = ref(db, `rooms/${roomId}/guestCandidates/${myUserId}_${Date.now()}`);
-                set(candRef, event.candidate.toJSON());
+        peerConnection.onicecandidate = (e) => {
+            if (e.candidate && roomId && myUserId) {
+                set(ref(db, `rooms/${roomId}/guestCandidates/${myUserId}_${Date.now()}`), e.candidate.toJSON());
             }
         };
         
-        const hostOfferRef = ref(db, `rooms/${roomId}/hostScreenOffer`);
-        onValue(hostOfferRef, async (snapshot) => {
-            const offerData = snapshot.val();
-            if (offerData && peerConnection && peerConnection.signalingState === 'stable') {
+        const hostOfferRef = ref(db, `rooms/${roomId}/hostOffer`);
+        onValue(hostOfferRef, async (snap) => {
+            const offer = snap.val();
+            if (offer && peerConnection && peerConnection.signalingState === 'stable') {
                 try {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offerData));
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-                    await set(ref(db, `rooms/${roomId}/guestScreenAnswers/${myUserId}`), { answer: { type: answer.type, sdp: answer.sdp } });
-                    updateStatus("📡 تم الارتباط ببث المضيف");
-                } catch(e) { console.warn(e); }
+                    await set(ref(db, `rooms/${roomId}/guestAnswers/${myUserId}`), { answer: { type: answer.type, sdp: answer.sdp } });
+                    updateStatus("📡 تم الاتصال ببث المضيف");
+                } catch(err) { console.warn(err); }
             }
         });
         
-        onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snapshot) => {
-            if (peerConnection && snapshot.val()) peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(e=>console.warn);
+        onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snap) => {
+            if (snap.val() && peerConnection) {
+                peerConnection.addIceCandidate(new RTCIceCandidate(snap.val())).catch(e=>console.warn);
+            }
         });
         
         const initialOffer = await new Promise(resolve => onValue(hostOfferRef, resolve, { onlyOnce: true }));
@@ -359,20 +348,15 @@
             await peerConnection.setRemoteDescription(new RTCSessionDescription(initialOffer.val()));
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
-            await set(ref(db, `rooms/${roomId}/guestScreenAnswers/${myUserId}`), { answer: { type: answer.type, sdp: answer.sdp } });
+            await set(ref(db, `rooms/${roomId}/guestAnswers/${myUserId}`), { answer: { type: answer.type, sdp: answer.sdp } });
         }
     }
     
-    // ========== 3. الدردشة الصوتية الجماعية (mesh بين جميع المستخدمين) ==========
-    // كل مستخدم ينشئ peerConnection مع كل مستخدم آخر (بسيط: نستخدم قائمة المشاركين وننشئ اتصالات صوتية)
-    // نبسطها: كل مستخدم يصبح له connection مع المضيف ومع كل ضيف آخر (يدعم 10+). نستخدم قناة signaling للصوت.
-    let voiceConnections = new Map(); // key: userId, value: RTCPeerConnection
-    
-    async function setupVoiceForUser(targetUserId, targetUserName, offerNeeded = true) {
-        if (targetUserId === myUserId) return;
-        if (voiceConnections.has(targetUserId)) return;
+    // ========== الدردشة الصوتية الجماعية ==========
+    async function setupVoiceWithUser(targetId, targetName) {
+        if (targetId === myUserId || voiceConnections.has(targetId)) return;
         const pc = new RTCPeerConnection(iceServers);
-        voiceConnections.set(targetUserId, pc);
+        voiceConnections.set(targetId, pc);
         
         if (localMicStream) {
             localMicStream.getTracks().forEach(track => {
@@ -380,94 +364,70 @@
             });
         }
         
-        pc.ontrack = (event) => {
-            if (event.streams && event.streams[0]) {
-                // نستقبل صوت المستخدم البعيد ونشغله في عنصر صوتي مخفي
-                let audioEl = document.getElementById(`audio_${targetUserId}`);
+        pc.ontrack = (e) => {
+            if (e.streams && e.streams[0]) {
+                let audioEl = document.getElementById(`voice_${targetId}`);
                 if (!audioEl) {
                     audioEl = document.createElement('audio');
-                    audioEl.id = `audio_${targetUserId}`;
+                    audioEl.id = `voice_${targetId}`;
                     audioEl.autoplay = true;
                     audioEl.style.display = 'none';
                     document.body.appendChild(audioEl);
                 }
-                audioEl.srcObject = event.streams[0];
-                audioEl.play().catch(e=>console.log);
+                audioEl.srcObject = e.streams[0];
             }
         };
         
-        pc.onicecandidate = (event) => {
-            if (event.candidate && roomId) {
-                const candRef = ref(db, `rooms/${roomId}/voiceCandidates/${targetUserId}/${myUserId}_${Date.now()}`);
-                set(candRef, event.candidate.toJSON());
+        pc.onicecandidate = (e) => {
+            if (e.candidate && roomId) {
+                set(ref(db, `rooms/${roomId}/voiceCandidates/${targetId}/${myUserId}`), e.candidate.toJSON());
             }
         };
         
-        if (offerNeeded) {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await set(ref(db, `rooms/${roomId}/voiceOffers/${targetUserId}/${myUserId}`), { offer: { type: offer.type, sdp: offer.sdp }, fromName: myUserName });
-        }
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await set(ref(db, `rooms/${roomId}/voiceOffers/${targetId}/${myUserId}`), { offer: { type: offer.type, sdp: offer.sdp } });
         
-        // الاستماع للإجابات
-        const answerRef = ref(db, `rooms/${roomId}/voiceAnswers/${myUserId}/${targetUserId}`);
-        onValue(answerRef, async (snap) => {
+        onValue(ref(db, `rooms/${roomId}/voiceAnswers/${myUserId}/${targetId}`), async (snap) => {
             const data = snap.val();
             if (data && pc && pc.signalingState === 'have-local-offer') {
                 await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(e=>console.warn);
             }
-        }, { onlyOnce: false });
+        });
         
-        // الاستماع للعروض الواردة من الطرف الآخر
-        const incomingOfferRef = ref(db, `rooms/${roomId}/voiceOffers/${myUserId}/${targetUserId}`);
-        onValue(incomingOfferRef, async (snap) => {
+        onValue(ref(db, `rooms/${roomId}/voiceOffers/${myUserId}/${targetId}`), async (snap) => {
             const data = snap.val();
             if (data && data.offer && pc && pc.signalingState === 'stable') {
                 await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                await set(ref(db, `rooms/${roomId}/voiceAnswers/${targetUserId}/${myUserId}`), { answer: { type: answer.type, sdp: answer.sdp } });
+                const ans = await pc.createAnswer();
+                await pc.setLocalDescription(ans);
+                await set(ref(db, `rooms/${roomId}/voiceAnswers/${targetId}/${myUserId}`), { answer: { type: ans.type, sdp: ans.sdp } });
             }
         });
-    }
-    
-    async function initVoiceWithAllParticipants(participants) {
-        for (let uid of Object.keys(participants)) {
-            if (uid !== myUserId) {
-                await setupVoiceForUser(uid, participants[uid]?.name || 'مستخدم', true);
-            }
-        }
     }
     
     async function enableMicrophone(enable) {
         if (enable && !localMicStream) {
             try {
-                const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                localMicStream = micStream;
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                localMicStream = stream;
                 isMicActive = true;
-                micStatusSpan.innerHTML = "🟢 ميكروفون نشط (تتحدث للجميع)";
+                micStatusSpan.innerHTML = "🟢 الميكروفون نشط";
                 btnMicToggle.textContent = "🔴 كتم الميكروفون";
-                // إضافة المسار لجميع اتصالات الصوت القائمة
-                for (let [uid, pc] of voiceConnections.entries()) {
-                    if (pc) {
-                        const audioTrack = localMicStream.getAudioTracks()[0];
-                        const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
-                        if (sender) await sender.replaceTrack(audioTrack);
-                        else pc.addTrack(audioTrack, localMicStream);
-                    }
+                for (let [uid, pc] of voiceConnections) {
+                    const track = localMicStream.getAudioTracks()[0];
+                    const sender = pc.getSenders().find(s => s.track?.kind === 'audio');
+                    if (sender) await sender.replaceTrack(track);
+                    else pc.addTrack(track, localMicStream);
                 }
-                updateStatus("🎙️ الميكروفون مفعل، يمكنك التحدث مع الجميع");
+                updateStatus("🎙️ الميكروفون مفعل - يمكنك التحدث");
             } catch(err) { updateStatus(`لا يمكن الوصول للميكروفون: ${err.message}`, true); }
         } else if (!enable && localMicStream) {
             localMicStream.getTracks().forEach(t => t.stop());
             localMicStream = null;
             isMicActive = false;
-            micStatusSpan.innerHTML = "🔴 ميكروفون مغلق";
+            micStatusSpan.innerHTML = "🔴 الميكروفون مغلق";
             btnMicToggle.textContent = "🎤 تفعيل الميكروفون";
-            for (let [uid, pc] of voiceConnections.entries()) {
-                const senders = pc.getSenders().filter(s => s.track?.kind === 'audio');
-                senders.forEach(s => pc.removeTrack(s));
-            }
             updateStatus("🔇 تم كتم الميكروفون");
         }
     }
@@ -485,56 +445,54 @@
     }
     
     function watchParticipants() {
-        const participantsRef = ref(db, `rooms/${roomId}/participants`);
-        onValue(participantsRef, async (snapshot) => {
-            const parts = snapshot.val() || {};
+        onValue(ref(db, `rooms/${roomId}/participants`), async (snap) => {
+            const parts = snap.val() || {};
             const count = Object.keys(parts).length;
             participantsCountSpan.innerText = count;
             let html = '';
             for (let [id, data] of Object.entries(parts)) {
-                const badge = data.isHost ? '<span class="badge-host">👑 مضيف</span>' : '<span class="badge-guest">👤 ضيف</span>';
-                const micIcon = (id !== myUserId && voiceConnections.has(id)) ? ' 🎧' : '';
-                html += `<div class="participant-card"><span class="participant-name">${escapeHtml(data.name || "مجهول")}</span> ${badge}${micIcon}</div>`;
-            }
-            participantsListDiv.innerHTML = html || '<div>لا يوجد مشاركون</div>';
-            // عند تغيير القائمة، نقوم بإنشاء اتصالات صوتية مع أي مستخدم جديد
-            if (roomId && myUserId) {
-                for (let uid of Object.keys(parts)) {
-                    if (uid !== myUserId && !voiceConnections.has(uid)) {
-                        await setupVoiceForUser(uid, parts[uid]?.name, true);
-                    }
+                const badge = data.isHost ? '<span class="badge-host">👑 مضيف</span>' : '<span>👤</span>';
+                html += `<div class="participant-card"><span>${escapeHtml(data.name)}</span> ${badge}</div>`;
+                if (id !== myUserId && !voiceConnections.has(id)) {
+                    await setupVoiceWithUser(id, data.name);
                 }
             }
+            participantsListDiv.innerHTML = html || '<div>لا يوجد متصلون</div>';
         });
     }
     
-    // ========== المغادرة والتنظيف ==========
+    // ========== إنشاء/مغادرة الغرفة ==========
     async function leaveRoom() {
-        await stopAllTracks();
-        await closePeerConnections();
+        await cleanupAll();
         if (roomId && myUserId) {
             await remove(ref(db, `rooms/${roomId}/participants/${myUserId}`));
-            if (!isHost) await remove(ref(db, `rooms/${roomId}/guestScreenAnswers/${myUserId}`));
+            if (!isHost) await remove(ref(db, `rooms/${roomId}/guestAnswers/${myUserId}`));
             if (isHost) await remove(ref(db, `rooms/${roomId}`));
-            // تنظيف بيانات الصوت
             await remove(ref(db, `rooms/${roomId}/voiceOffers/${myUserId}`));
             await remove(ref(db, `rooms/${roomId}/voiceAnswers/${myUserId}`));
         }
-        if (remoteVideo.srcObject) { remoteVideo.srcObject.getTracks().forEach(t => t.stop()); remoteVideo.srcObject = null; }
-        roomId = null; isHost = false;
+        roomId = null;
+        isHost = false;
         switchScreen(roomScreen, welcomeScreen);
-        updateStatus("غادرت الغرفة");
+        updateStatus("تم مغادرة الغرفة");
+    }
+    
+    function switchScreen(hide, show) {
+        hide.classList.remove('active');
+        show.classList.add('active');
     }
     
     btnLeaveRoom.addEventListener('click', leaveRoom);
+    
     btnSetName.addEventListener('click', async () => {
         let newName = myNameInput.value.trim();
         if (newName) myUserName = newName.slice(0, 20);
-        if (roomId && myUserId) await set(ref(db, `rooms/${roomId}/participants/${myUserId}/name`), myUserName);
-        updateStatus(`اسمك الآن: ${myUserName}`);
+        if (roomId && myUserId) {
+            await set(ref(db, `rooms/${roomId}/participants/${myUserId}/name`), myUserName);
+        }
+        updateStatus(`تم تغيير الاسم إلى: ${myUserName}`);
     });
     
-    // إنشاء غرفة كمضيف
     btnHost.addEventListener('click', async () => {
         await leaveRoom();
         isHost = true;
@@ -545,23 +503,20 @@
         displayRoomCode.innerText = roomId;
         switchScreen(welcomeScreen, roomScreen);
         hostControlArea.style.display = "block";
-        remoteVideo.style.display = "block";
-        updateStatus(`غرفة ${roomId} - انتظر دخول الضيوف، شارك الشاشة`);
+        updateStatus(`✅ تم إنشاء الغرفة بنجاح! الكود: ${roomId}`);
         await set(ref(db, `rooms/${roomId}`), { hostId: myUserId, created: Date.now() });
         onDisconnect(ref(db, `rooms/${roomId}`)).remove();
         await registerParticipant();
-        await setupHostScreenAudioConnection(); // جاهز لبث الشاشة/صوت النظام
+        await setupHostStreaming();
         watchParticipants();
-        // تمكين الميكروفون للمضيف (الدردشة الصوتية)
         await enableMicrophone(true);
     });
     
-    // انضمام ضيف
     btnJoin.addEventListener('click', async () => {
         let code = roomCodeInput.value.trim();
-        if (!code || code.length !== 4) { updateStatus("كود غير صالح", true); return; }
+        if (!code || code.length !== 4) { updateStatus("أدخل كود مكون من 4 أرقام", true); return; }
         const roomSnap = await new Promise(resolve => onValue(ref(db, `rooms/${code}`), resolve, { onlyOnce: true }));
-        if (!roomSnap.exists()) { updateStatus("غرفة غير موجودة", true); return; }
+        if (!roomSnap.exists()) { updateStatus("الغرفة غير موجودة، تأكد من الكود", true); return; }
         await leaveRoom();
         isHost = false;
         roomId = code;
@@ -571,18 +526,13 @@
         displayRoomCode.innerText = roomId;
         switchScreen(welcomeScreen, roomScreen);
         hostControlArea.style.display = "none";
-        remoteVideo.style.display = "block";
-        updateStatus("جاري الاتصال ببث المضيف والدردشة الصوتية...");
+        updateStatus(`🔍 جاري الانضمام إلى الغرفة ${roomId}...`);
         await registerParticipant();
-        await setupGuestScreenReceiver();   // استقبال شاشة المضيف
+        await setupGuestReceiving();
         watchParticipants();
-        // تمكين الميكروفون للضيف للمحادثة الصوتية
         await enableMicrophone(true);
+        updateStatus(`✅ تم الانضمام بنجاح! انتظر بث المضيف`);
     });
-    
-    // إزالة أي عناصر رابط قديمة
-    const oldFrame = document.getElementById('shared-frame');
-    if(oldFrame) oldFrame.remove();
 </script>
 </body>
 </html>
