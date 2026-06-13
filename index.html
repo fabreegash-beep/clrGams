@@ -1,779 +1,1026 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>تطبيق السينما والبث الحي - بث منفصل للشاشة والصوت + دردشة صوتية</title>
-
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
-
-// إعدادات Firebase
-const firebaseConfig = {
-  apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
-  authDomain: "my-online-store-34f34.firebaseapp.com",
-  databaseURL: "https://my-online-store-34f34-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "my-online-store-34f34",
-  storageBucket: "my-online-store-34f34.firebasestorage.app",
-  messagingSenderId: "288655549705",
-  appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
-};
-
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
-
-// خوادم STUN/TURN المحسنة
-const iceServers = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.relay.metered.ca:80' },
-    {
-      urls: 'turn:relay.metered.ca:80',
-      username: 'b12f3d7f4a5c3e8d9f0a1b2c',
-      credential: 'd4e5f6g7h8i9j0k1l2m3'
-    },
-    {
-      urls: 'turn:relay.metered.ca:443',
-      username: 'b12f3d7f4a5c3e8d9f0a1b2c',
-      credential: 'd4e5f6g7h8i9j0k1l2m3'
-    }
-  ],
-  iceTransportPolicy: 'all',
-  iceCandidatePoolSize: 10
-};
-
-// ===== المتغيرات =====
-let peerConnection;       // اتصال بث الشاشة والصوت (الكود الأصلي)
-let micPeerConnection;    // اتصال الدردشة الصوتية الجديد (mic فقط)
-let videoStream;          // تيار الشاشة (بدون صوت)
-let audioStream;          // تيار صوت الجهاز فقط
-let micStream;            // 🎤 تيار المايكروفون (جديد)
-let roomId;
-let isHost = false;
-let isScreenSharing = false;
-let isAudioSharing = false;
-let isMicOn = false;      // حالة المايكروفون (جديد)
-let micEnabled = true;    // كتم/تشغيل (جديد)
-
-const welcomeScreen = document.getElementById('welcome-screen');
-const roomScreen = document.getElementById('room-screen');
-const btnHost = document.getElementById('btn-host');
-const btnJoin = document.getElementById('btn-join');
-const roomCodeInput = document.getElementById('room-code-input');
-const displayRoomCode = document.getElementById('display-room-code');
-const remoteVideo = document.getElementById('remote-video');
-const statusText = document.getElementById('status-text');
-const hostControlArea = document.getElementById('host-control-area');
-const urlInput = document.getElementById('url-input');
-const btnSendUrl = document.getElementById('btn-send-url');
-const btnShareScreen = document.getElementById('btn-share-screen');
-const btnShareAudio = document.getElementById('btn-share-audio');
-const sharedFrame = document.getElementById('shared-frame');
-
-// 🎤 عناصر الدردشة الصوتية الجديدة
-const micControls = document.getElementById('mic-controls');
-const btnToggleMic = document.getElementById('btn-toggle-mic');
-const remoteAudio = document.getElementById('remote-audio');
-const micStatus = document.getElementById('mic-status');
-
-// تحديث حالة الاتصال
-function updateStatus(message, isError = false) {
-  statusText.innerHTML = message;
-  statusText.style.color = isError ? '#ff6b6b' : '#cbd5e1';
-  console.log(`[Status] ${message}`);
-}
-
-function updateMicStatus(message, isError = false) {
-  if (!micStatus) return;
-  micStatus.innerHTML = message;
-  micStatus.style.color = isError ? '#ff6b6b' : '#4ade80';
-}
-
-// إضافة مسار إلى اتصال بث الشاشة
-async function addTrackToConnection(track, stream) {
-  if (peerConnection && track) {
-    const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === track.kind);
-    if (sender) {
-      await sender.replaceTrack(track);
-      updateStatus(`✅ تم تحديث مسار ${track.kind === 'audio' ? 'الصوت' : 'الفيديو'}`);
-    } else {
-      peerConnection.addTrack(track, stream);
-      updateStatus(`✅ تم إضافة مسار ${track.kind === 'audio' ? 'الصوت' : 'الفيديو'}`);
-    }
-  }
-}
-
-// تنظيف الاتصال
-async function cleanupConnection() {
-  if (videoStream) {
-    videoStream.getTracks().forEach(track => track.stop());
-    videoStream = null;
-  }
-  if (audioStream) {
-    audioStream.getTracks().forEach(track => track.stop());
-    audioStream = null;
-  }
-  if (micStream) {
-    micStream.getTracks().forEach(track => track.stop());
-    micStream = null;
-  }
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
-  }
-  if (micPeerConnection) {
-    micPeerConnection.close();
-    micPeerConnection = null;
-  }
-  isScreenSharing = false;
-  isAudioSharing = false;
-  isMicOn = false;
-  if (remoteAudio) {
-    remoteAudio.srcObject = null;
-  }
-  if (roomId && !isHost) {
-    const guestCandidatesRef = ref(db, `rooms/${roomId}/guestCandidates`);
-    await remove(guestCandidatesRef);
-    const micCandidatesRef = ref(db, `rooms/${roomId}/micCandidates`);
-    await remove(micCandidatesRef);
-  }
-}
-
-// 1. منطق المضيف
-btnHost.addEventListener('click', async () => {
-  try {
-    await cleanupConnection();
-    isHost = true;
-    roomId = Math.floor(1000 + Math.random() * 9000).toString();
-    displayRoomCode.innerText = roomId;
-
-    switchScreen(welcomeScreen, roomScreen);
-    hostControlArea.style.display = "block";
-    remoteVideo.style.display = "none";
-    sharedFrame.style.display = "none";
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🎯 توقع الجمهور - تحدي التخمين الذكي</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
     
-    // 🎤 إظهار أزرار المايك للمضيف أيضاً
-    if (micControls) {
-      micControls.style.display = "flex";
-      micControls.style.justifyContent = "center";
-    }
-    
-    updateStatus("✅ تم فتح الغرفة. شارك الكود مع أصدقائك.");
-
-    // تنظيف الغرفة عند إغلاق المتصفح
-    const roomRef = ref(db, `rooms/${roomId}`);
-    await remove(roomRef);
-    onDisconnect(roomRef).remove();
-
-  } catch (error) {
-    updateStatus(`❌ خطأ: ${error.message}`, true);
-  }
-});
-
-// زر مشاركة الشاشة (فيديو فقط بدون صوت) - الكود الأصلي
-btnShareScreen.addEventListener('click', async () => {
-  updateStatus("🖥️ جاري مشاركة الشاشة...");
-
-  try {
-    videoStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: { ideal: 30, max: 60 },
-        width: { ideal: 1920, max: 1920 },
-        height: { ideal: 1080, max: 1080 }
-      },
-      audio: false
-    });
-
-    isScreenSharing = true;
-    updateStatus("✅ تم مشاركة الشاشة بنجاح! جاري إنشاء الاتصال...");
-
-    if (!peerConnection) {
-      await setupWebrtcAsHost();
-    }
-
-    const videoTrack = videoStream.getVideoTracks()[0];
-    await addTrackToConnection(videoTrack, videoStream);
-
-    updateStatus("🎬 بث الشاشة يعمل الآن! يمكنك الآن إضافة صوت الجهاز.");
-
-    videoTrack.onended = () => {
-      updateStatus("⚠️ توقفت مشاركة الشاشة", true);
-      isScreenSharing = false;
-      btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
-    };
-
-    btnShareScreen.textContent = "✅ الشاشة قيد البث";
-
-  } catch (error) {
-    updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, true);
-  }
-});
-
-// زر بث صوت الجهاز (مستقل) - الكود الأصلي
-btnShareAudio.addEventListener('click', async () => {
-  if (isAudioSharing) {
-    if (audioStream) {
-      audioStream.getTracks().forEach(track => track.stop());
-      audioStream = null;
-    }
-    isAudioSharing = false;
-    btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
-    updateStatus("🔇 تم إيقاف بث صوت الجهاز");
-
-    if (peerConnection) {
-      const audioSenders = peerConnection.getSenders().filter(s => s.track && s.track.kind === 'audio');
-      audioSenders.forEach(sender => {
-        peerConnection.removeTrack(sender);
-      });
-    }
-  } else {
-    updateStatus("🎵 جاري تشغيل صوت الجهاز...");
-
-    try {
-      const tempStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: 1, max: 1 },
-          height: { ideal: 1, max: 1 },
-          frameRate: 1
-        },
-        audio: true
-      });
-
-      const audioTrack = tempStream.getAudioTracks()[0];
-
-      if (audioTrack) {
-        audioStream = new MediaStream();
-        audioStream.addTrack(audioTrack);
-
-        isAudioSharing = true;
-
-        if (!peerConnection) {
-          await setupWebrtcAsHost();
-        }
-
-        await addTrackToConnection(audioTrack, audioStream);
-
-        updateStatus("🎵 تم تشغيل صوت الجهاز! الضيوف الآن يسمعون صوت جهازك.");
-        btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
-
-        audioTrack.onended = () => {
-          updateStatus("⚠️ توقف بث صوت الجهاز", true);
-          isAudioSharing = false;
-          btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
-        };
-
-        tempStream.getVideoTracks().forEach(track => track.stop());
-      } else {
-        updateStatus("❌ لم يتم العثور على مسار صوت", true);
-        tempStream.getTracks().forEach(track => track.stop());
-      }
-
-    } catch (error) {
-      updateStatus(`❌ فشل تشغيل صوت الجهاز: ${error.message}. تأكد من اختيار "مشاركة الصوت" في النافذة المنبثقة.`, true);
-    }
-  }
-});
-
-// رابط الموقع - الكود الأصلي
-btnSendUrl.addEventListener('click', async () => {
-  let url = urlInput.value.trim();
-  if (!url) {
-    updateStatus("⚠️ الرجاء إدخال الرابط أولاً", true);
-    return;
-  }
-
-  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-
-  sharedFrame.src = url;
-  sharedFrame.style.display = "block";
-  updateStatus("📺 تم تحميل الموقع. يمكنك الآن مشاركة الشاشة والصوت.");
-});
-
-// ===== اتصال بث الشاشة والصوت (المضيف) - الكود الأصلي =====
-async function setupWebrtcAsHost() {
-  peerConnection = new RTCPeerConnection(iceServers);
-
-  peerConnection.onconnectionstatechange = () => {
-    if (peerConnection.connectionState === 'connected') {
-      updateStatus("✅ البث متصل بنجاح!");
-    } else if (peerConnection.connectionState === 'failed') {
-      updateStatus("❌ فشل الاتصال", true);
-    }
-  };
-
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      const candidateRef = ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}`);
-      set(candidateRef, event.candidate.toJSON());
-    }
-  };
-
-  peerConnection.onnegotiationneeded = async () => {
-    try {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      await update(ref(db, `rooms/${roomId}`), {
-        offer: { type: offer.type, sdp: offer.sdp }
-      });
-    } catch (error) {
-      console.error("Negotiation error:", error);
-    }
-  };
-
-  onValue(ref(db, `rooms/${roomId}/answer`), (snapshot) => {
-    const answer = snapshot.val();
-    if (answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
-      peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
-        .then(() => updateStatus("✅ تم استلام رد الضيف"))
-        .catch(console.error);
-    }
-  });
-
-  onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snapshot) => {
-    if (snapshot.exists() && peerConnection) {
-      peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-        .catch(console.error);
-    }
-  });
-}
-
-// 2. منطق الضيف
-btnJoin.addEventListener('click', async () => {
-  try {
-    await cleanupConnection();
-    isHost = false;
-    roomId = roomCodeInput.value.trim();
-
-    if (!roomId || roomId.length !== 4) {
-      updateStatus("⚠️ كود الغرفة يجب أن يكون 4 أرقام", true);
-      return;
-    }
-
-    updateStatus("🔍 جاري البحث عن الغرفة...");
-
-    const roomSnapshot = await new Promise((resolve) => {
-      onValue(ref(db, `rooms/${roomId}`), resolve, { onlyOnce: true });
-    });
-
-    if (!roomSnapshot.exists()) {
-      updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
-      return;
-    }
-
-    switchScreen(welcomeScreen, roomScreen);
-    displayRoomCode.innerText = roomId;
-    sharedFrame.style.display = "none";
-    remoteVideo.style.display = "block";
-    document.getElementById('host-control-area').style.display = "none";
-    
-    // 🎤 إظهار أزرار المايك للضيف
-    if (micControls) {
-      micControls.style.display = "flex";
-      micControls.style.justifyContent = "center";
-    }
-
-    updateStatus("📡 جاري الاتصال بالبث...");
-    await setupWebrtcAsGuest();
-
-  } catch (error) {
-    updateStatus(`❌ خطأ: ${error.message}`, true);
-  }
-});
-
-// ===== اتصال بث الشاشة والصوت (الضيف) - الكود الأصلي =====
-async function setupWebrtcAsGuest() {
-  peerConnection = new RTCPeerConnection(iceServers);
-
-  peerConnection.ontrack = (event) => {
-    if (event.streams && event.streams[0]) {
-      if (remoteVideo.srcObject) {
-        const existingStream = remoteVideo.srcObject;
-        event.streams[0].getTracks().forEach(track => {
-          existingStream.addTrack(track);
-        });
-      } else {
-        remoteVideo.srcObject = event.streams[0];
-      }
-
-      remoteVideo.play().then(() => {
-        const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
-        updateStatus(`🎬 تم الاتصال!${hasAudio ? ' يتم سماع صوت الجهاز.' : ''}`);
-      }).catch(() => {
-        updateStatus("⚠️ انقر على الفيديو لبدء التشغيل", true);
-      });
-    }
-  };
-
-  peerConnection.onconnectionstatechange = () => {
-    if (peerConnection.connectionState === 'connected') {
-      updateStatus("✅ تم الاتصال بالبث بنجاح!");
-    } else if (peerConnection.connectionState === 'failed') {
-      updateStatus("❌ فشل الاتصال", true);
-    }
-  };
-
-  peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      const candidateRef = ref(db, `rooms/${roomId}/guestCandidates/${Date.now()}`);
-      set(candidateRef, event.candidate.toJSON());
-    }
-  };
-
-  onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
-    const offer = snapshot.val();
-    if (offer && peerConnection && peerConnection.signalingState === 'stable') {
-      try {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        await update(ref(db, `rooms/${roomId}`), {
-          answer: { type: answer.type, sdp: answer.sdp }
-        });
-        updateStatus("✅ تم إرسال الرد إلى المضيف");
-      } catch (error) {
-        console.error("Error:", error);
-      }
-    }
-  });
-
-  onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snapshot) => {
-    if (snapshot.exists() && peerConnection) {
-      peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-        .catch(console.error);
-    }
-  });
-
-  const offerSnapshot = await new Promise((resolve) => {
-    onValue(ref(db, `rooms/${roomId}/offer`), resolve, { onlyOnce: true });
-  });
-
-  if (offerSnapshot.exists() && peerConnection.signalingState === 'stable') {
-    const offer = offerSnapshot.val();
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-    await update(ref(db, `rooms/${roomId}`), {
-      answer: { type: answer.type, sdp: answer.sdp }
-    });
-  }
-}
-
-// ============================================================
-// 🎤 ====== الدردشة الصوتية (الجديدة) ======
-// اتصال WebRTC مستقل مخصص للمايكروفون فقط
-// الضيف يرسل صوته، المضيف يستقبل
-// المضيف يرسل صوته، الضيف يستقبل
-// ============================================================
-
-// عند تشغيل المايك (مستخدم سواء مضيف أو ضيف)
-async function startMicChat() {
-  if (isMicOn) return; // شغال أصلاً
-  try {
-    // طلب إذن المايكروفون
-    micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      },
-      video: false
-    });
-
-    isMicOn = true;
-    micEnabled = true;
-    btnToggleMic.textContent = "🎤 إيقاف المايك";
-    btnToggleMic.classList.remove('btn-mic-off');
-    btnToggleMic.classList.add('btn-mic-on');
-    updateMicStatus("🎤 المايكروفون يعمل - يسمعك الطرف الآخر");
-
-    // إنشاء اتصال مستقل للمايك
-    await setupMicConnection();
-
-  } catch (error) {
-    updateMicStatus(`❌ فشل تشغيل المايك: ${error.message}`, true);
-    isMicOn = false;
-  }
-}
-
-// إيقاف المايك
-function stopMicChat() {
-  if (micStream) {
-    micStream.getTracks().forEach(t => t.stop());
-    micStream = null;
-  }
-  if (micPeerConnection) {
-    micPeerConnection.close();
-    micPeerConnection = null;
-  }
-  isMicOn = false;
-  micEnabled = false;
-  btnToggleMic.textContent = "🎤 تشغيل المايك";
-  btnToggleMic.classList.remove('btn-mic-on');
-  btnToggleMic.classList.add('btn-mic-off');
-  updateMicStatus("🔇 المايكروفون مغلق");
-  
-  // إزالة المسارات
-  if (roomId) {
-    remove(ref(db, `rooms/${roomId}/micOffer`));
-    remove(ref(db, `rooms/${roomId}/micAnswer`));
-    remove(ref(db, `rooms/${roomId}/micCandidates`));
-  }
-}
-
-// تبديل حالة المايك (تشغيل/إيقاف)
-btnToggleMic.addEventListener('click', () => {
-  if (isMicOn) {
-    stopMicChat();
-  } else {
-    startMicChat();
-  }
-});
-
-// تهيئة اتصال المايك حسب الدور
-async function setupMicConnection() {
-  // تنظيف القديم إن وجد
-  if (micPeerConnection) {
-    micPeerConnection.close();
-  }
-  // مسح signaling القديم
-  await remove(ref(db, `rooms/${roomId}/micOffer`));
-  await remove(ref(db, `rooms/${roomId}/micAnswer`));
-  await remove(ref(db, `rooms/${roomId}/micCandidates`));
-
-  micPeerConnection = new RTCPeerConnection(iceServers);
-
-  // إضافة مسار المايك
-  micStream.getTracks().forEach(track => {
-    micPeerConnection.addTrack(track, micStream);
-  });
-
-  // استقبال الصوت البعيد
-  micPeerConnection.ontrack = (event) => {
-    if (event.streams && event.streams[0]) {
-      remoteAudio.srcObject = event.streams[0];
-      remoteAudio.play().catch(() => {});
-      updateMicStatus("🔊 تسمع الطرف الآخر الآن");
-    }
-  };
-
-  micPeerConnection.onconnectionstatechange = () => {
-    if (micPeerConnection.connectionState === 'connected') {
-      updateMicStatus("✅ الدردشة الصوتية متصلة");
-    } else if (micPeerConnection.connectionState === 'failed') {
-      updateMicStatus("❌ فشل اتصال الدردشة الصوتية", true);
-    }
-  };
-
-  // إرسال مرشحات ICE
-  micPeerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      const candRef = ref(db, `rooms/${roomId}/micCandidates/${Date.now()}_${Math.random()}`);
-      set(candRef, event.candidate.toJSON());
-    }
-  };
-
-  // ترتيب التهيئة: الضيف يبدأ لأنه يريد إرسال صوته للمضيف
-  // المضيف يستقبل وينتظر العرض
-  if (!isHost) {
-    // ===== الضيف هو البادئ =====
-    const offer = await micPeerConnection.createOffer({
-      offerToReceiveAudio: true
-    });
-    await micPeerConnection.setLocalDescription(offer);
-    await set(ref(db, `rooms/${roomId}/micOffer`), {
-      type: offer.type,
-      sdp: offer.sdp,
-      from: 'guest'
-    });
-    updateMicStatus("📤 في انتظار رد المضيف...");
-
-    // انتظار رد المضيف
-    onValue(ref(db, `rooms/${roomId}/micAnswer`), (snapshot) => {
-      const answer = snapshot.val();
-      if (answer && micPeerConnection && micPeerConnection.signalingState === 'have-local-offer') {
-        micPeerConnection.setRemoteDescription(new RTCSessionDescription(answer))
-          .then(() => updateMicStatus("✅ الدردشة الصوتية جاهزة"))
-          .catch(console.error);
-      }
-    }, { onlyOnce: true });
-  } else {
-    // ===== المضيف ينتظر عرض الضيف =====
-    updateMicStatus("👂 في انتظار الضيف ليتحدث...");
-
-    onChildAdded(ref(db, `rooms/${roomId}/micCandidates`), (snapshot) => {
-      if (snapshot.exists() && micPeerConnection) {
-        micPeerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-          .catch(console.error);
-      }
-    });
-
-    // مراقبة عرض الضيف
-    const offerRef = ref(db, `rooms/${roomId}/micOffer`);
-    onValue(offerRef, async (snapshot) => {
-      const offer = snapshot.val();
-      if (offer && micPeerConnection && micPeerConnection.signalingState === 'stable') {
-        try {
-          await micPeerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-          const answer = await micPeerConnection.createAnswer();
-          await micPeerConnection.setLocalDescription(answer);
-          await set(ref(db, `rooms/${roomId}/micAnswer`), {
-            type: answer.type,
-            sdp: answer.sdp
-          });
-          updateMicStatus("✅ الدردشة الصوتية متصلة");
-        } catch (error) {
-          console.error("Mic answer error:", error);
-        }
-      }
-    });
-  }
-}
-
-// ============================================================
-// نهاية قسم الدردشة الصوتية
-// ============================================================
-
-function switchScreen(hide, show) {
-  hide.classList.remove('active');
-  show.classList.add('active');
-}
-
-document.body.addEventListener('click', () => {
-  if (remoteVideo.srcObject && remoteVideo.paused) {
-    remoteVideo.play().catch(() => {});
-  }
-  if (remoteAudio && remoteAudio.srcObject && remoteAudio.paused) {
-    remoteAudio.play().catch(() => {});
-  }
-});
-
-console.log("✅ التطبيق جاهز - بث منفصل للشاشة والصوت + دردشة صوتية");
-</script>
-
-<style>
-:root {
-  --bg-gradient: linear-gradient(135deg, #060913, #131a35, #060913);
-  --glass-bg: rgba(255, 255, 255, 0.03);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --accent-color: #00f2fe;
-  --text-color: #ffffff;
-}
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
-body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 15px; }
-.container { width: 100%; max-width: 900px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 25px; text-align: center; }
-h1 { font-size: 1.5rem; margin-bottom: 20px; }
-.screen { display: none; }
-.screen.active { display: block; }
-.btn { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border: none; color: white; padding: 12px 20px; font-size: 0.9rem; font-weight: bold; border-radius: 12px; cursor: pointer; margin-top: 10px; transition: transform 0.2s, opacity 0.2s; }
-.btn:hover { transform: translateY(-2px); opacity: 0.9; }
-.btn-secondary { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border); }
-.btn-success { background: linear-gradient(90deg, #11998e, #38ef7d); }
-.btn-warning { background: linear-gradient(90deg, #f093fb, #f5576c); }
-.divider { margin: 20px 0; color: #7f8c8d; font-size: 0.85rem; display: flex; align-items: center; gap: 10px; }
-.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
-input { width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); padding: 14px; border-radius: 12px; color: white; font-size: 1rem; text-align: center; outline: none; transition: border-color 0.2s; }
-input:focus { border-color: var(--accent-color); }
-.status { font-size: 0.85rem; color: #cbd5e1; margin: 15px 0; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); line-height: 1.4; }
-.control-box { background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 16px; margin-bottom: 15px; border: 1px solid rgba(0, 242, 254, 0.2); }
-.buttons-group { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-.buttons-group .btn { flex: 1; margin-top: 0; }
-#view-container { width: 100%; margin-top: 20px; border-radius: 16px; overflow: hidden; background: #000000; aspect-ratio: 16/9; border: 1px solid var(--glass-border); position: relative; }
-iframe { width: 100%; height: 100%; border: none; background: #ffffff; display: none; }
-video { width: 100%; height: 100%; object-fit: contain; background: #000000; }
-@media (max-width: 600px) {
-  .container { padding: 15px; }
-  h1 { font-size: 1.2rem; }
-  .btn { padding: 10px 16px; font-size: 0.8rem; }
-  .buttons-group { flex-direction: column; }
-}
-.info-text { font-size: 0.8rem; color: #888; margin-top: 10px; }
-
-/* 🎤 أنماط الدردشة الصوتية الجديدة */
-.mic-box {
-  background: linear-gradient(135deg, rgba(74, 222, 128, 0.1), rgba(0, 242, 254, 0.1));
-  padding: 15px;
-  border-radius: 16px;
-  margin-top: 15px;
-  border: 1px solid rgba(74, 222, 128, 0.3);
-}
-.mic-box h3 {
-  font-size: 1rem;
-  margin-bottom: 10px;
-  color: #4ade80;
-}
-.btn-mic-on {
-  background: linear-gradient(90deg, #4ade80, #22d3ee) !important;
-  color: #0a0a0a !important;
-  font-weight: bold;
-}
-.btn-mic-off {
-  background: rgba(255, 107, 107, 0.2) !important;
-  border: 1px solid #ff6b6b !important;
-  color: white !important;
-}
-.mic-status-text {
-  font-size: 0.8rem;
-  margin-top: 8px;
-  color: #4ade80;
-  min-height: 20px;
-}
-#remote-audio {
-  display: none; /* مخفي - نشغل الصوت فقط */
-}
-</style>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --primary: #ff6b6b; --primary-dark: #ee5a5a; --secondary: #4ecdc4; --accent: #ffe66d; --bg-dark: #1a1a2e; --bg-darker: #16213e; --panel: rgba(255, 255, 255, 0.95); --text-dark: #2d3436; --text-light: #ffffff; --gold: #ffd700; --silver: #c0c0c0; --bronze: #cd7f32; --success: #00b894; --danger: #e17055; --purple: #a855f7; --pink: #ec4899; --blue: #3b82f6; --orange: #f97316; }
+        body { background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%); min-height: 100vh; font-family: 'Cairo', sans-serif; display: flex; justify-content: center; align-items: center; text-align: center; position: relative; overflow-x: hidden; }
+        .particles, .bubbles-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; overflow: hidden; }
+        .particle { position: absolute; border-radius: 50%; animation: float 15s infinite; opacity: 0.6; }
+        @keyframes float { 0%, 100% { transform: translateY(100vh) rotate(0deg); opacity: 0; } 10% { opacity: 0.6; } 90% { opacity: 0.6; } 100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; } }
+        .bubble { position: absolute; bottom: -100px; background: linear-gradient(135deg, rgba(255,255,255,0.3), rgba(255,255,255,0.1)); border-radius: 50%; animation: rise 8s infinite; opacity: 0.4; }
+        @keyframes rise { 0% { transform: translateY(0) scale(1); opacity: 0.4; } 50% { opacity: 0.6; } 100% { transform: translateY(-100vh) scale(1.5); opacity: 0; } }
+        .container { position: relative; z-index: 1; width: 95%; max-width: 550px; padding: 10px; }
+        .screen { background: linear-gradient(145deg, #ffffff, #f8f9fa); padding: 35px 30px; border-radius: 30px; width: 100%; box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.8); position: relative; overflow: hidden; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .screen::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(90deg, var(--primary), var(--secondary), var(--accent), var(--purple), var(--pink)); background-size: 200% 100%; animation: gradientShift 3s linear infinite; }
+        @keyframes gradientShift { 0% { background-position: 0% 50%; } 100% { background-position: 200% 50%; } }
+        .hidden { display: none !important; }
+        h1 { font-size: 2.4rem; font-weight: 800; background: linear-gradient(135deg, var(--primary), var(--purple), var(--pink)); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 8px; }
+        h2 { color: var(--purple); font-size: 1.6rem; font-weight: 700; margin-bottom: 15px; }
+        .emoji-icon { font-size: 3rem; margin-bottom: 10px; display: block; animation: bounce 2s infinite; }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        .glass-input { padding: 16px 24px; border-radius: 50px; border: 3px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, var(--primary), var(--purple)) border-box; color: var(--text-dark); margin: 10px 0; width: 90%; font-size: 1.1rem; font-family: 'Cairo', sans-serif; transition: all 0.3s; outline: none; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+        .glass-input:focus { background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, var(--secondary), var(--success)) border-box; transform: scale(1.02); }
+        button { background: linear-gradient(135deg, var(--primary), var(--purple)); color: white; border: none; padding: 14px 32px; border-radius: 50px; cursor: pointer; font-weight: 700; font-size: 1.05rem; font-family: 'Cairo', sans-serif; transition: all 0.3s; margin: 8px; position: relative; overflow: hidden; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); }
+        button::before { content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent); transition: left 0.5s; }
+        button:hover::before { left: 100%; }
+        button:hover { transform: scale(1.05) translateY(-2px); }
+        .btn-secondary { background: linear-gradient(135deg, var(--secondary), var(--success)); }
+        .stats-bar { display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, var(--bg-dark), var(--bg-darker)); padding: 12px 20px; border-radius: 20px; margin-bottom: 15px; color: white; }
+        .timer-wrapper { background: linear-gradient(135deg, var(--bg-dark), var(--bg-darker)); border-radius: 25px; padding: 15px 25px; margin: 15px 0; display: flex; justify-content: space-between; align-items: center; }
+        .timer { font-size: 2.5rem; color: var(--accent); font-weight: 800; font-family: 'Courier New', monospace; }
+        .progress-bar { width: 100%; height: 8px; background: rgba(0, 0, 0, 0.1); border-radius: 4px; margin: 12px 0; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--primary), var(--secondary), var(--accent)); transition: width 0.3s ease; }
+        .question-card { background: linear-gradient(135deg, #f8f9fa, #e9ecef); padding: 20px; border-radius: 20px; margin: 15px 0; }
+        .question-text { font-size: 1.4rem; font-weight: 700; color: var(--text-dark); }
+        .answers-grid { display: grid; gap: 12px; margin: 20px 0; }
+        .ans-item { background: linear-gradient(135deg, #ffffff, #f1f3f5); padding: 18px 22px; border-radius: 20px; border: 3px solid transparent; display: flex; justify-content: space-between; align-items: center; transition: all 0.3s; }
+        .ans-item.found { background: linear-gradient(135deg, #d4edda, #c3e6cb); border-color: var(--success); animation: revealPulse 0.6s ease; }
+        @keyframes revealPulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+        .ans-number { background: linear-gradient(135deg, var(--primary), var(--purple)); color: white; width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; margin-left: 12px; }
+        .ans-value { background: linear-gradient(135deg, var(--accent), var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; font-size: 1.2rem; font-weight: 800; }
+        .input-group { display: flex; gap: 12px; margin-top: 20px; }
+        .input-group input { flex: 1; padding: 16px 22px; border-radius: 50px; border: 3px solid transparent; background: linear-gradient(#fff, #fff) padding-box, linear-gradient(135deg, var(--secondary), var(--blue)) border-box; font-family: 'Cairo', sans-serif; font-size: 1.05rem; }
+        .feedback-msg { font-size: 0.95rem; margin-top: 12px; min-height: 30px; font-weight: 600; }
+        .feedback-success { color: var(--success); animation: fadeInUp 0.3s ease; }
+        .feedback-error { color: var(--danger); animation: shake 0.4s ease; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }
+        .player-list { background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 25px; padding: 18px; margin: 15px 0; }
+        .player-card { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; margin: 10px 0; background: white; border-radius: 20px; }
+        .player-card.you { border-color: var(--primary); background: linear-gradient(135deg, #fff5f5, #ffe0e0); }
+        .room-code-box { background: linear-gradient(135deg, var(--bg-dark), var(--bg-darker)); padding: 25px; border-radius: 25px; margin: 15px 0; }
+        .room-code { font-size: 2.5rem; letter-spacing: 12px; font-family: 'Courier New', monospace; background: linear-gradient(135deg, var(--accent), var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; }
+        .winner-section { padding: 25px; background: linear-gradient(135deg, #fff9e6, #fff3cc); border-radius: 25px; margin: 20px 0; border: 3px solid var(--gold); }
+        .winner-name { font-size: 2.2rem; font-weight: 800; background: linear-gradient(135deg, var(--gold), var(--orange)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+        .rank-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 22px; margin: 10px 0; background: white; border-radius: 20px; }
+        .notification { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, var(--primary), var(--purple)); color: white; padding: 14px 28px; border-radius: 50px; font-weight: 700; z-index: 1000; animation: slideDown 3s ease forwards; }
+        @keyframes slideDown { 0% { opacity: 0; transform: translateX(-50%) translateY(-50px); } 15% { opacity: 1; transform: translateX(-50%) translateY(0); } 85% { opacity: 1; transform: translateX(-50%) translateY(0); } 100% { opacity: 0; transform: translateX(-50%) translateY(-50px); } }
+        .confetti { position: fixed; width: 10px; height: 10px; top: -10px; animation: confettiFall 3s linear forwards; z-index: 1000; }
+        @keyframes confettiFall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+        @media (max-width: 480px) { .question-text { font-size: 1.2rem; } .timer { font-size: 2rem; } .room-code { font-size: 2rem; letter-spacing: 8px; } }
+    </style>
 </head>
 <body>
 
+<div class="particles" id="particles"></div>
+<div class="bubbles-container" id="bubbles"></div>
+
 <div class="container">
-<div id="welcome-screen" class="screen active">
-  <h1>🎬 سينما لايف - بث منفصل للشاشة والصوت + دردشة صوتية</h1>
-  <button id="btn-host" class="btn">🚀 فتح غرفة بث جديدة (المضيف)</button>
-  <div class="divider">أو انضم إلى صديقك للمشاهدة</div>
-  <input type="number" id="room-code-input" placeholder="📱 أدخل كود الغرفة (4 أرقام)">
-  <button id="btn-join" class="btn btn-secondary">👥 دخول لمشاهدة البث</button>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen">
+        <span class="emoji-icon">🎯</span>
+        <h1>توقع الجمهور</h1>
+        <p class="subtitle">🌟 تحدي الأصوات - تخمين ذكي يقبل كل الأخطاء</p>
+        
+        <input type="text" id="userName" class="glass-input" placeholder="👤 اكتب اسمك هنا" maxlength="15">
+        
+        <div>
+            <button class="btn-secondary" onclick="createRoom()">✨ إنشاء غرفة جديدة</button>
+        </div>
+
+        <div class="divider" style="display: flex; align-items: center; margin: 20px 0; gap: 10px;"><hr style="flex:1;"><span>أو</span><hr style="flex:1;"></div>
+
+        <div style="display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
+            <input type="text" id="roomInput" class="glass-input" placeholder="🔢 الرمز" maxlength="4" style="width: 130px;">
+            <button onclick="joinRoom()">🚪 انضمام</button>
+        </div>
+
+        <div class="info-section" style="background: linear-gradient(135deg, #2d3436, #1a1a2e); padding: 15px; border-radius: 20px; margin-top: 15px; color: white;">
+            <div>✅ 2-4 لاعبين | 4 أسئلة | 45 ثانية</div>
+            <div>🎯 يقبل الأخطاء الإملائية والتقريبات تلقائياً!</div>
+            <div>📝 "غسالة" ✅ ← "غسال" أو "غسله" أو "غاسلة"</div>
+        </div>
+    </div>
+
+    <!-- Waiting Screen -->
+    <div id="waitingScreen" class="screen hidden">
+        <span class="emoji-icon">🆔</span>
+        <h2>رمز الغرفة</h2>
+        <div class="room-code-box">
+            <div class="room-code-label">شارك هذا الرمز مع أصدقائك</div>
+            <div class="room-code" id="roomCode">----</div>
+        </div>
+        <div class="player-list">
+            <div class="player-list-title">👥 اللاعبون</div>
+            <div id="playerList"></div>
+        </div>
+        <div class="waiting-msg" id="waitingMsg">⏳ انتظار اللاعبين ...</div>
+        <button id="startBtn" class="start-btn" style="background: linear-gradient(135deg, #00b894, #4ecdc4);" onclick="startGame()" hidden>▶️ ابدأ اللعبة</button>
+        <button class="leave-btn" style="background: #636e72; padding: 10px 20px;" onclick="leaveRoom()">🚪 مغادرة</button>
+    </div>
+
+    <!-- Game Screen -->
+    <div id="gameScreen" class="screen hidden">
+        <div class="stats-bar">
+            <div>🎯 <span id="myScoreDisplay">0</span> نقطة</div>
+            <div class="score-box">سؤال <span id="qCount">1</span>/<span id="totalQ">4</span></div>
+        </div>
+        <div class="timer-wrapper">
+            <div>⏱️ الوقت المتبقي</div>
+            <div class="timer" id="timeLeftDisplay">45</div>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="questionProgress" style="width:100%"></div></div>
+        <div class="question-card"><div class="question-text" id="questionText">⏳ جاري التحميل...</div></div>
+        <div id="answersBoard" class="answers-grid"></div>
+        <div class="input-group">
+            <input type="text" id="guessInput" placeholder="✏️ اكتب إجابتك (حتى لو فيها أخطاء)..." autocomplete="off">
+            <button class="btn-secondary" onclick="submitGuess()">📤 إرسال</button>
+        </div>
+        <div class="feedback-msg" id="feedbackMsg"></div>
+    </div>
+
+    <!-- Result Screen -->
+    <div id="resultScreen" class="screen hidden">
+        <div class="winner-section">
+            <div class="winner-icon">🏆</div>
+            <div class="winner-label">الفائز</div>
+            <div class="winner-name" id="winnerName">...</div>
+        </div>
+        <h2>📊 الترتيب النهائي</h2>
+        <div id="rankings"></div>
+        <button class="new-game-btn" style="background: linear-gradient(135deg, #00b894, #4ecdc4);" onclick="location.reload()">🎮 العب مرة أخرى</button>
+    </div>
 </div>
 
-<div id="room-screen" class="screen">
-  <h1>🏠 رقم الغرفة: <span id="display-room-code" style="color:var(--accent-color); letter-spacing: 2px;">----</span></h1>
-  <div id="status-text" class="status">⚙️ جاري تهيئة قنوات المزامنة...</div>
+<script>
+    // Firebase Configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
+        authDomain: "my-online-store-34f34.firebaseapp.com",
+        databaseURL: "https://my-online-store-34f34-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "my-online-store-34f34",
+        storageBucket: "my-online-store-34f34.firebasestorage.app",
+        appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
-  <div id="host-control-area" class="control-box">
-    <input type="text" id="url-input" placeholder="🔗 ألصق رابط الموقع هنا (اختياري)" style="direction: ltr;">
-    <button id="btn-send-url" class="btn btn-secondary" style="margin-top: 10px;">📖 تحميل الموقع</button>
+    let myId = Math.random().toString(36).substr(2, 9);
+    let myName = "";
+    let currentRoom = "";
+    let isHost = false;
+    let timerInterval;
+    let currentGameQuestions = [];
 
-    <div class="buttons-group">
-      <button id="btn-share-screen" class="btn btn-success">🖥️ مشاركة الشاشة</button>
-      <button id="btn-share-audio" class="btn btn-warning">🎵 تشغيل صوت الجهاز</button>
-    </div>
-    <div class="info-text">
-      💡 نصيحة: شارك الشاشة أولاً، ثم اضغط "تشغيل صوت الجهاز" لنقل الصوت للضيوف
-    </div>
-  </div>
+    // ======================== قاعدة الأسئلة (يمكنك إضافة المزيد) ========================
+    const allQuestions = [
+        {q: "☕ شيء يشربه الناس في الصباح", a: {"قهوة": 45, "شاي": 25, "حليب": 20, "ماء": 10}},
+        {q: "🍕 الأكلة المفضلة لدى الشباب", a: {"بيتزا": 50, "برجر": 30, "معكرونة": 12, "شاورما": 8}},
+        {q: "🍎 فاكهة صحية", a: {"تفاح": 40, "موز": 30, "برتقال": 20, "فراولة": 10}},
+        {q: "☕ شيء يشربه الناس في الصباح", a: {"قهوة": 45, "شاي": 25, "حليب": 20, "ماء": 10}},
+    {q: "🍲 أكلة جزائرية مشهورة", a: {"كسكس": 50, "شخشوخة": 20, "شوربة": 15, "دولمة": 15}},
+    {q: "🍔 أكلة سريعة مفضلة في الجزائر", a: {"كاشير": 35, "شاورما": 30, "بيتزا": 20, "بانيني": 15}},
+    {q: "🍰 حلويات جزائرية مشهورة", a: {"مقروط": 35, "بقلاوة": 30, "غريبة": 20, "قلب اللوز": 15}},
+    {q: "🥘 أكلة في رمضان", a: {"شوربة": 40, "بوراك": 30, "طاجين": 20, "سلطة": 10}},
+    {q: "🍞 شيء يؤكل مع الشاي", a: {"خبز": 40, "بسكويت": 30, "كيك": 20, "مقروط": 10}},
+    {q: "🥩 لحم مفضل في الجزائر", a: {"دجاج": 40, "خروف": 30, "بقر": 20, "سمك": 10}},
+    {q: "🍟 شيء يؤكل مع البطاطا", a: {"دجاج": 40, "لحم": 30, "بيض": 20, "صلصة": 10}},
+    {q: "🍳 فطور جزائري بسيط", a: {"خبز": 40, "بيض": 30, "زبدة": 20, "جبن": 10}},
+    {q: "🥗 سلطة معروفة", a: {"سلطة مشوية": 40, "سلطة خضراء": 30, "سلطة رز": 20, "سلطة بطاطا": 10}},
 
-  <!-- 🎤 قسم الدردشة الصوتية الجديد - يظهر للجميع -->
-  <div id="mic-controls" class="mic-box" style="display: none;">
-    <h3>🎤 الدردشة الصوتية</h3>
-    <button id="btn-toggle-mic" class="btn btn-mic-off">🎤 تشغيل المايك</button>
-    <div id="mic-status" class="mic-status-text">🔇 المايك مغلق - اضغط الزر للتحدث مع الطرف الآخر</div>
-    <div class="info-text">
-      💡 كل من المضيف والضيف يستطيع تشغيل المايك والتحدث مع بعض
-    </div>
-  </div>
+    {q: "🚗 وسيلة نقل", a: {"سيارة": 50, "حافلة": 20, "دراجة": 20, "تاكسي": 10}},
+    {q: "📱 تطبيق مشهور", a: {"فيسبوك": 40, "واتساب": 30, "انستغرام": 20, "تيك توك": 10}},
+    {q: "🎮 لعبة مشهورة", a: {"فري فاير": 40, "فيفا": 30, "بوبجي": 20, "كول اوف ديوتي": 10}},
+    {q: "📺 قناة جزائرية", a: {"النهار": 40, "الشروق": 30, "ENTV": 20, "سميرة": 10}},
+    {q: "🏫 مكان الدراسة", a: {"مدرسة": 50, "جامعة": 30, "معهد": 10, "بيت": 10}},
+    {q: "📚 مادة دراسية", a: {"رياضيات": 40, "عربي": 30, "علوم": 20, "تاريخ": 10}},
+    {q: "👨‍🏫 شخص في المدرسة", a: {"أستاذ": 50, "تلميذ": 30, "مدير": 10, "حارس": 10}},
+    {q: "🖊️ أداة في القسم", a: {"قلم": 40, "دفتر": 30, "كتاب": 20, "مسطرة": 10}},
 
-  <!-- عنصر صوت مخفي لاستقبال صوت الطرف الآخر -->
-  <audio id="remote-audio" autoplay></audio>
+    {q: "🐶 حيوان أليف", a: {"قط": 45, "كلب": 35, "سمك": 10, "هامستر": 10}},
+    {q: "🐄 حيوان في المزرعة", a: {"بقرة": 40, "خروف": 30, "دجاج": 20, "حصان": 10}},
+    {q: "🌳 شيء في الطبيعة", a: {"شجرة": 40, "نهر": 30, "جبل": 20, "بحر": 10}},
+    {q: "🌞 شيء في الصيف", a: {"حر": 40, "بحر": 30, "عطلة": 20, "شمس": 10}},
+    {q: "❄️ شيء في الشتاء", a: {"برد": 40, "مطر": 30, "ثلج": 20, "رياح": 10}},
 
-  <div id="view-container">
-    <iframe id="shared-frame" allow="autoplay; encrypted-media; fullscreen"></iframe>
-    <video id="remote-video" autoplay playsinline controls></video>
-  </div>
-</div>
-</div>
+    {q: "🎁 شيء يقدم كهدية", a: {"عطر": 40, "ساعة": 30, "ملابس": 20, "هاتف": 10}},
+    {q: "👕 لباس شائع", a: {"قميص": 40, "بنطلون": 30, "جاكيت": 20, "حذاء": 10}},
+    {q: "👟 نوع حذاء", a: {"سبور": 50, "كلاسيك": 20, "صندل": 20, "بوت": 10}},
+    {q: "🧢 شيء يلبس في الرأس", a: {"قبعة": 40, "كاسكيت": 30, "شال": 20, "خوذة": 10}},
 
+    {q: "🏠 غرفة في المنزل", a: {"غرفة نوم": 40, "مطبخ": 30, "صالون": 20, "حمام": 10}},
+    {q: "🛏️ شيء في غرفة النوم", a: {"سرير": 50, "وسادة": 20, "خزانة": 20, "غطاء": 10}},
+    {q: "🍽️ شيء في المطبخ", a: {"فرن": 40, "ثلاجة": 30, "طاولة": 20, "ميكروويف": 10}},
+    {q: "📺 شيء في الصالون", a: {"تلفاز": 50, "أريكة": 20, "طاولة": 20, "سجادة": 10}},
+
+    {q: "😂 شيء يضحك الناس", a: {"نكتة": 40, "فيديو": 30, "صديق": 20, "موقف": 10}},
+    {q: "😴 شيء يسبب النوم", a: {"تعب": 40, "ليل": 30, "هدوء": 20, "ملل": 10}},
+    {q: "😡 شيء يغضب الناس", a: {"كذب": 40, "إهانة": 30, "تأخر": 20, "مشكل": 10}},
+
+    {q: "📅 مناسبة دينية", a: {"رمضان": 40, "عيد الفطر": 30, "عيد الأضحى": 20, "المولد": 10}},
+    {q: "🎉 شيء في العيد", a: {"ملابس": 40, "حلويات": 30, "نقود": 20, "زيارات": 10}},
+    {q: "🕌 مكان للصلاة", a: {"مسجد": 60, "بيت": 20, "مصلى": 10, "ساحة": 10}},
+
+    {q: "⚽ رياضة مشهورة", a: {"كرة القدم": 60, "كرة اليد": 20, "جري": 10, "ملاكمة": 10}},
+    {q: "☕ شيء تشربه في الصباح", a: {"قهوة": 48, "شاي": 25, "حليب": 17, "عصير": 10}},
+    {q: "🍳 شيء تأكله على الفطور", a: {"بيض": 40, "جبن": 30, "خبز": 20, "زيتون": 10}},
+    {q: "🚗 وسيلة التنقل إلى العمل", a: {"سيارة": 55, "باص": 20, "مترو": 15, "مشي": 10}},
+    {q: "📱 أول شيء تفتحه على هاتفك صباحاً", a: {"واتساب": 45, "انستغرام": 25, "فيسبوك": 20, "تيك توك": 10}},
+    {q: "🛏️ كم ساعة تنام في الليل", a: {"7-8 ساعات": 50, "5-6 ساعات": 25, "أقل من 5": 15, "أكثر من 8": 10}},
+    {q: "🍽️ أكثر وجبة تهمل خلال اليوم", a: {"الفطور": 45, "الغداء": 15, "العشاء": 30, "سناك": 10}},
+    {q: "🧼 أول شيء تفعله عندما تستيقظ", a: {"غسل الوجه": 40, "شرب ماء": 25, "تفقد الهاتف": 25, "الصلاة": 10}},
+    {q: "🚿 في أي وقت تستحم غالباً", a: {"الصباح": 45, "المساء": 40, "الظهر": 10, "أي وقت": 5}},
+    {q: "📺 كم ساعة تشاهد التلفاز يومياً", a: {"1-2 ساعة": 45, "2-3 ساعات": 30, "أقل من ساعة": 15, "أكثر من 3": 10}},
+    {q: "☕ كم كوب قهوة تشرب يومياً", a: {"1-2 كوب": 50, "3-4 أكواب": 25, "لا أشرب": 15, "أكثر من 4": 10}},
+    {q: "🥡 كم مرة تطلب طعاماً جاهزاً في الأسبوع", a: {"مرة": 40, "مرتين": 30, "لا أطلب": 20, "أكثر من 3 مرات": 10}},
+    {q: "🛒 أين تفضل التسوق", a: {"سوبر ماركت": 45, "سوق شعبي": 30, "أونلاين": 15, "محل صغير": 10}},
+    {q: "💰 كم تنفق يومياً في المعدل", a: {"1000-2000 دج": 40, "500-1000 دج": 35, "أقل من 500": 15, "أكثر من 2000": 10}},
+    {q: "🚶 كم خطوة تمشي يومياً", a: {"3000-5000": 40, "5000-10000": 35, "أقل من 3000": 15, "أكثر من 10000": 10}},
+    {q: "🏋️ كم مرة تمارس الرياضة أسبوعياً", a: {"مرة": 35, "مرتين": 30, "لا أمارس": 25, "3 مرات فأكثر": 10}},
+    {q: "📖 كم كتاب تقرأ في السنة", a: {"لا شيء": 45, "1-2 كتاب": 35, "3-5 كتب": 15, "أكثر من 5": 5}},
+    {q: "🍿 أي نوع أفلام تفضل", a: {"أكشن": 40, "كوميدي": 35, "دراما": 15, "رعب": 10}},
+    {q: "🎵 أي نوع موسيقى تفضل", a: {"راب": 40, "عربية": 35, "بوب": 15, "كلاسيكي": 10}},
+    {q: "📱 كم ساعة تقضي على الهاتف يومياً", a: {"2-4 ساعات": 45, "4-6 ساعات": 30, "أقل من ساعتين": 15, "أكثر من 6": 10}},
+    {q: "🛌 في أي وقت تخلد إلى النوم", a: {"10-11 مساءً": 40, "11-12 ليلاً": 35, "بعد 12": 15, "قبل 10": 10}},
+
+    // ======================== الطعام والشراب (20 سؤال) ========================
+    {q: "🍕 الأكلة السريعة المفضلة", a: {"بيتزا": 45, "برجر": 30, "شاورما": 15, "فاست فوكس": 10}},
+    {q: "🍹 مشروب تفضله في الصيف", a: {"عصير بارد": 45, "مشروب غازي": 30, "ماء بارد": 15, "شاي مثلج": 10}},
+    {q: "🍲 الطبق التقليدي المفضل", a: {"كسكس": 55, "شخشوخة": 20, "دوبارة": 15, "رفيس": 10}},
+    {q: "🍰 الحلوى المفضلة", a: {"شوكولاتة": 45, "غريبة": 25, "مقروط": 20, "بسبوسة": 10}},
+    {q: "🥘 أفضل طبق غداء", a: {"طاجين": 40, "كسكس": 35, "مرقة": 15, "مشوي": 10}},
+    {q: "🥗 أفضل سلطة", a: {"سلطة خضراء": 45, "سلطة مشكلة": 30, "سلطة زيتون": 15, "سلطة تونسية": 10}},
+    {q: "🍚 أفضل طبق جانبي", a: {"رز": 45, "بطاطس مقلية": 35, "خبز": 15, "معكرونة": 5}},
+    {q: "🍝 نوع المعكرونة المفضل", a: {"سباغيتي": 50, "بيني": 20, "فيتوتشيني": 15, "لافيي": 15}},
+    {q: "🍗 أفضل طريقة لطهي الدجاج", a: {"مشوي": 50, "مقلي": 25, "مطبوخ": 20, "محمر": 5}},
+    {q: "🥩 أفضل نوع لحم", a: {"لحم بقر": 45, "لحم خروف": 35, "دجاج": 15, "لحم جمل": 5}},
+    {q: "🧀 أفضل نوع جبن", a: {"جبن أبيض": 45, "جبن أصفر": 35, "جبن روكفور": 10, "جبن مبشور": 10}},
+    {q: "🥐 أفضل مخبوزات", a: {"كرواسون": 45, "باجيت": 25, "خبز مطلوع": 20, "بريوش": 10}},
+    {q: "🍨 أفضل نكهة آيس كريم", a: {"فانيلا": 40, "شوكولاتة": 35, "فراولة": 15, "بستاشيو": 10}},
+    {q: "🥤 أفضل مشروب غازي", a: {"كوكاكولا": 55, "بيبسي": 25, "سبرايت": 10, "فانتا": 10}},
+    {q: "🍵 أفضل شاي", a: {"شاي أحمر": 50, "شاي أخضر": 25, "شاي بالنعناع": 15, "شاي بالحليب": 10}},
+    {q: "☕ أفضل قهوة", a: {"قهوة عربية": 45, "قهوة تركية": 35, "قهوة أمريكية": 10, "نسكافيه": 10}},
+    {q: "🍳 أفضل طريقة لعمل البيض", a: {"مقلي": 45, "مسلوق": 30, "أومليت": 15, "عيون": 10}},
+    {q: "🥣 أفضل شوربة", a: {"حريرة": 45, "شربة فريك": 30, "شربة عدس": 15, "شوربة خضار": 10}},
+    {q: "🍌 أفضل فاكهة", a: {"تفاح": 35, "موز": 30, "برتقال": 25, "فراولة": 10}},
+    {q: "🥜 أفضل نوع مكسرات", a: {"لوز": 40, "فستق": 35, "كاجو": 15, "جوز": 10}},
+
+    // ======================== السفر والأماكن (15 سؤال) ========================
+    {q: "✈️ أحلام السفر إلى", a: {"دبي": 35, "باريس": 30, "تركيا": 20, "لندن": 15}},
+    {q: "🏖️ أفضل وجهة صيفية داخل الجزائر", a: {"بجاية": 35, "جيجل": 30, "وهران": 20, "عنابة": 15}},
+    {q: "🏔️ أفضل وجهة شتوية داخل الجزائر", a: {"تلمسان": 30, "سطيف": 25, "باتنة": 25, "البليدة": 20}},
+    {q: "🏛️ أفضل مدينة تاريخية في الجزائر", a: {"قسنطينة": 40, "تيمقاد": 30, "جميلة": 20, "تيديس": 10}},
+    {q: "🌊 أفضل شاطئ في الجزائر", a: {"تيقزيرت": 35, "أندلس": 25, "ميلفا": 20, "سيدي فرج": 20}},
+    {q: "🕌 أجمل مسجد في الجزائر", a: {"الجامع الكبير": 35, "مسجد كتشاوة": 30, "المسجد الجديد": 20, "مسجد عبد الحميد بن باديس": 15}},
+    {q: "🏰 أفضل معلم سياحي في الجزائر", a: {"القصبة": 45, "بازيليكا القديس أوغسطين": 25, "مقبرة المسيلة": 15, "الكاليفورنيا": 15}},
+    {q: "🏝️ أفضل جزيرة في الجزائر", a: {"جزر حبيبة": 40, "القرايا": 30, "سيركنا": 20, "رأس أكفادو": 10}},
+    {q: "🌳 أجمل غابة في الجزائر", a: {"غابة بولوغين": 40, "غابة زرالدة": 35, "غابة أكفادو": 15, "غابة جيجل": 10}},
+    {q: "🏞️ أفضل منطقة جبلية", a: {"جورايا": 40, "جبل شناوة": 30, "الأوراس": 20, "جبل عيسى": 10}},
+    {q: "🕌 أفضل مسجد في العالم", a: {"المسجد الحرام": 60, "المسجد النبوي": 30, "الأقصى": 5, "جامع الزيتونة": 5}},
+    {q: "🏙️ أفضل مدينة عربية", a: {"دبي": 40, "القاهرة": 30, "الرياض": 20, "الدوحة": 10}},
+    {q: "🌍 أفضل بلد للسفر", a: {"تركيا": 35, "مصر": 25, "إيطاليا": 20, "إسبانيا": 20}},
+    {q: "🏨 نوع السكن المفضل في السفر", a: {"فندق": 50, "أير بي إن بي": 25, "منزل العائلة": 15, "مخيم": 10}},
+    {q: "🧹 أكثر شيء مزعج في التنظيف", a: {"غسل الصحون": 50, "كنس الأرض": 25, "ترتيب الغرفة": 15, "مسح الغبار": 10}},
+    {q: "🔊 أكثر شيء يضايقك في الجيران", a: {"الصوت العالي": 55, "الروائح": 20, "النفايات": 15, "مواقف السيارات": 10}},
+    {q: "🛒 أكثر شيء تنسى شراءه من السوق", a: {"خبز": 35, "حليب": 30, "ملح": 20, "زيت": 15}},
+    {q: "🔑 أكثر شيء تضيعه في البيت", a: {"مفتاح": 40, "هاتف": 30, "نظارة": 20, "جهاز تحكم": 10}},
+    {q: "⏰ أكثر وقت تكسل فيه", a: {"الصباح الباكر": 45, "بعد الغداء": 30, "المساء": 15, "قبل النوم": 10}},
+    {q: "📺 برنامج تتابعه باستمرار", a: {"الأخبار": 45, "مسلسلات رمضان": 30, "برامج طبخ": 15, "رياضة": 10}},
+    {q: "🎬 فيلم تشاهده أكثر من مرة", a: {"تايتانيك": 30, "سيد الخواتم": 25, "هاري بوتر": 25, "المومياء": 20}},
+    {q: "📖 نوع كتب تقرأه", a: {"دينية": 40, "روايات": 30, "تاريخ": 20, "علم نفس": 10}},
+    {q: "🎵 أغنية تسمعها عند الحزن", a: {"حزينة": 40, "هادئة": 35, "سريعة": 15, "دينية": 10}},
+    {q: "📞 أول من تتصل به عند الفرح", a: {"الأم": 60, "الأب": 20, "الصديق": 15, "الأخ": 5}},
+    {q: "😢 أول من تتصل به عند الحزن", a: {"الأم": 65, "الصديق": 20, "الأخ": 10, "الأب": 5}},
+    {q: "🎁 آخر هدية أخذتها", a: {"ملابس": 35, "عطر": 30, "مال": 25, "هاتف": 10}},
+    {q: "🎂 أكثر عيد ميلاد تحبه", a: {"عيد ميلادي": 50, "عيد ميلاد أمي": 25, "عيد ميلاد طفلي": 15, "عيد ميلاد صديقي": 10}},
+    {q: "😴 وضعية نومك المفضلة", a: {"على الظهر": 40, "على الجنب": 35, "على البطن": 15, "متكور": 10}},
+    {q: "🛌 كم مخدة تستخدم للنوم", a: {"واحدة": 45, "اثنتان": 35, "ثلاث": 15, "لا شيء": 5}},
+    {q: "🚿 صباحاً أم مساءً", a: {"صباحاً": 55, "مساءً": 40, "الاثنين": 3, "أي وقت": 2}},
+    {q: "🧴 أول شيء تلبسه بعد الاستحمام", a: {"ملابس داخلية": 45, "بيجاما": 30, "منشفة": 15, "رداء": 10}},
+    {q: "🍳 أول شيء تطبخه لوحدك", a: {"بيض": 50, "معكرونة": 25, "رز": 15, "شاي": 10}},
+    {q: "☕ كم مرة تشرب قهوة باليوم", a: {"مرة": 40, "مرتين": 35, "ثلاث": 15, "لا أشرب": 10}},
+    {q: "🥤 آخر شيء شربته اليوم", a: {"ماء": 45, "قهوة": 25, "عصير": 20, "مشروب غازي": 10}},
+    {q: "🍽️ آخر شيء أكلته اليوم", a: {"خبز": 35, "جبن": 30, "بيض": 20, "زيتون": 15}},
+    {q: "🚌 وسيلة النقل اليومية", a: {"سيارة خاصة": 45, "باص": 30, "مترو": 15, "مشي": 10}},
+    {q: "⏰ كم دقيقة تحتاج للاستعداد صباحاً", a: {"30 دقيقة": 45, "ساعة": 30, "15 دقيقة": 15, "أكثر من ساعة": 10}},
+    {q: "🪞 كم مرة تنظر للمرآة يومياً", a: {"2-3 مرات": 40, "5-10 مرات": 35, "مرة": 15, "أكثر من 10": 10}},
+    {q: "💬 كم مرة تتفقد هاتفك في الساعة", a: {"5-10 مرات": 45, "10-20 مرة": 30, "أقل من 5": 15, "أكثر من 20": 10}},
+
+    // ======================== 👨‍👩‍👧‍👦 العلاقات والزواج (15 سؤال) ========================
+    {q: "💍 عمر الزواج المثالي للرجل", a: {"28-30 سنة": 45, "25-27 سنة": 30, "30-35 سنة": 15, "أقل من 25": 10}},
+    {q: "👰 عمر الزواج المثالي للمرأة", a: {"23-25 سنة": 45, "20-22 سنة": 30, "26-28 سنة": 15, "أقل من 20": 10}},
+    {q: "💰 كم مهر المثالي", a: {"50-100 مليون": 40, "30-50 مليون": 35, "100-150 مليون": 15, "أقل من 30": 10}},
+    {q: "🏠 السكن بعد الزواج", a: {"شقة إيجار": 45, "بيت شراء": 35, "مع الأهل": 15, "شقة تملك": 5}},
+    {q: "👶 كم طفل تريد بعد الزواج", a: {"طفلان": 45, "3 أطفال": 35, "طفل واحد": 15, "4 فأكثر": 5}},
+    {q: "💔 أكثر سبب للطلاق", a: {"مشاكل مالية": 40, "خيانة": 35, "تدخل الأهل": 15, "عدم تفاهم": 10}},
+    {q: "💍 المدة المثالية للخطوبة", a: {"سنة": 45, "6 أشهر": 30, "سنتان": 15, "أقل من 6 أشهر": 10}},
+    {q: "🏠 تفضل العيش مع أهل الزوج أم لوحدكم", a: {"لوحدنا": 60, "مع أهل الزوج": 20, "مع أهلي": 15, "قريب منهم": 5}},
+    {q: "💰 من يدير ميزانية البيت", a: {"الزوجة": 45, "الزوج": 35, "الإثنين معاً": 15, "الأهل": 5}},
+    {q: "👔 صفة最重要 في الزوج", a: {"الأمانة": 45, "المال": 25, "الدين": 20, "الشكل": 10}},
+    {q: "👗 صفة最重要 في الزوجة", a: {"الاحترام": 45, "الطاعة": 25, "الجمال": 20, "الطبخ": 10}},
+    {q: "💍 نوع الزفاف المفضل", a: {"قاعة": 50, "مسجد": 25, "بيت": 15, "خارج البلاد": 10}},
+    {q: "👰 عدد المدعوين في الزفاف", a: {"100-200": 40, "200-300": 35, "أقل من 100": 15, "أكثر من 300": 10}},
+    {q: "💍 الشبكة كم قيراط", a: {"5-7 قيراط": 40, "3-5 قيراط": 35, "7-10 قيراط": 15, "أقل من 3": 10}},
+    {q: "🎁 أفضل هدية زواج", a: {"مال": 50, "ذهب": 30, "أثاث": 15, "أجهزة": 5}},
+
+    // ======================== 👶 الأطفال والتربية (10 سؤال) ========================
+    {q: "🍼 أفضل اسم ولد", a: {"محمد": 45, "أحمد": 30, "علي": 15, "يوسف": 10}},
+    {q: "🎀 أفضل اسم بنت", a: {"فاطمة": 45, "عائشة": 30, "مريم": 15, "زينب": 10}},
+    {q: "🏫 عمر دخول المدرسة", a: {"6 سنوات": 50, "5 سنوات": 30, "7 سنوات": 15, "4 سنوات": 5}},
+    {q: "📚 تشجيع الطفل على", a: {"الدراسة": 45, "الرياضة": 30, "الدين": 20, "الرسم": 5}},
+    {q: "🎮 وقت اللعب اليومي للطفل", a: {"ساعة": 45, "ساعتان": 35, "30 دقيقة": 15, "أكثر من ساعتين": 5}},
+    {q: "📱 منع الطفل من", a: {"الهاتف": 50, "التلفاز": 25, "ألعاب الفيديو": 15, "السهر": 10}},
+    {q: "👶 تفضيل الطفل", a: {"ولد": 30, "بنت": 30, "توأم": 25, "لا فرق": 15}},
+    {q: "🏆 مكافأة الطفل عند النجاح", a: {"هدية": 45, "مال": 35, "سفر": 15, "خروج": 5}},
+    {q: "😢 عقاب الطفل عند الخطأ", a: {"حرمان": 45, "ضرب خفيف": 35, "توبيخ": 15, "مصادرة": 5}},
+    {q: "👨‍👩‍👧 طريقة التربية المفضلة", a: {"حوار": 50, "حزم": 25, "دلع": 15, "تساهل": 10}},
+
+    // ======================== 💸 المال والاقتصاد (15 سؤال) ========================
+    {q: "💰 أول شيء تشتريه عند الراتب", a: {"طعام": 45, "ملابس": 25, "كهرباء": 15, "إيجار": 15}},
+    {q: "💸 أكثر مصروف غير ضروري", a: {"تدخين": 40, "مطاعم": 30, "قهوة": 20, "ملابس": 10}},
+    {q: "🏦 أفضل بنك في الجزائر", a: {"الخليج": 35, "بي إن بي": 30, "الجزائر الخارجي": 25, "البركة": 10}},
+    {q: "💳 أفضل بطاقة بنكية", a: {"سي أي بي": 40, "فيزا": 35, "ماستر كارد": 15, "إيداهاب": 10}},
+    {q: "💰 مبلغ الطوارئ المثالي", a: {"5-10 مليون": 45, "10-20 مليون": 35, "أقل من 5": 10, "أكثر من 20": 10}},
+    {q: "💸 أكثر شيء يضيع المال", a: {"هاتف جديد": 40, "سفر": 30, "سيارة": 20, "أثاث": 10}},
+    {q: "🏦 متى تبدأ بالادخار", a: {"من أول راتب": 50, "بعد الزواج": 25, "بعد 30 سنة": 15, "لا أدخر": 10}},
+    {q: "💰 أفضل استثمار آمن", a: {"ذهب": 45, "عقار": 40, "بنك": 10, "بزنس": 5}},
+    {q: "💸 كلمة السر في الغنى", a: {"عمل": 45, "ذكاء": 25, "حظ": 20, "وراثة": 10}},
+    {q: "🏦 كم حساب بنكي تملك", a: {"واحد": 50, "اثنان": 30, "لا شيء": 15, "ثلاثة فأكثر": 5}},
+    {q: "💰 كم تحتفظ نقداً في محفظتك", a: {"5000-10000 دج": 45, "10000-20000": 35, "أقل من 5000": 15, "أكثر من 20000": 5}},
+    {q: "💸 أكثر من تقترض منه المال", a: {"الأهل": 50, "الأصدقاء": 30, "البنك": 15, "الجمعية": 5}},
+    {q: "🏦 جمعية أم بنك", a: {"جمعية": 45, "بنك": 40, "صندوق": 10, "لا شيء": 5}},
+    {q: "💰 مشكلة المال الوحيدة", a: {"قلته": 70, "كثرة صرفه": 15, "صعوبة جمعه": 10, "حراميته": 5}},
+    {q: "💸 لو معك 1000 دولار", a: {"سفر": 40, "ذهب": 35, "هاتف": 15, "ملابس": 10}},
+
+    // ======================== 🎓 التعليم والدراسة (10 سؤال) ========================
+    {q: "📚 أصعب سنة دراسية", a: {"بكالوريا": 70, "ثالثة متوسط": 15, "جامعة": 10, "ابتدائي": 5}},
+    {q: "📝 أفضل وقت للمذاكرة", a: {"الليل": 45, "الصباح": 35, "بعد الفجر": 15, "الظهر": 5}},
+    {q: "👩‍🏫 صفة最重要 في الأستاذ", a: {"صبر": 45, "علم": 30, "عدل": 15, "فكاهة": 10}},
+    {q: "📖 أفضل طريقة للمراجعة", a: {"تلخيص": 40, "حل تمارين": 35, "قراءة": 15, "مجموعات": 10}},
+    {q: "🎓 التخصص الجامعي الأصعب", a: {"طب": 50, "هندسة": 30, "صيدلة": 10, "قانون": 10}},
+    {q: "📚 كم سنة دراسة في الجامعة", a: {"5 سنوات": 40, "3 سنوات": 35, "4 سنوات": 15, "6 سنوات": 10}},
+    {q: "📝 الغش في الامتحان", a: {"ممنوع": 50, "أحياناً": 25, "حرام": 15, "عادي": 10}},
+    {q: "🏫 الدروس الخصوصية", a: {"ضرورية": 45, "مفيدة": 35, "مكلفة": 15, "لا فائدة": 5}},
+    {q: "📚 كم كتاب تدرس في الفصل", a: {"4-6 كتب": 45, "7-9 كتب": 35, "أقل من 4": 10, "أكثر من 9": 10}},
+    {q: "📝 أصعب مادة في البكالوريا", a: {"رياضيات": 45, "علوم": 30, "عربية": 15, "لغات": 10}},
+
+    // ======================== 🌍 الثقافة والمجتمع (15 سؤال) ========================
+    {q: "📰 أكثر مشكلة في المجتمع", a: {"البطالة": 50, "الغلاء": 30, "الإدمان": 10, "الجهل": 10}},
+    {q: "🚦 أكثر مشكلة في الطرقات", a: {"الزحمة": 45, "حوادث": 30, "حفر": 15, "سرعة": 10}},
+    {q: "🏥 مشكلة الصحة الأكثر انتشاراً", a: {"سكري": 40, "ضغط": 35, "سمنة": 15, "قلب": 10}},
+    {q: "📱 أكثر شيء يضيع الوقت", a: {"فيسبوك": 35, "تيك توك": 30, "يوتيوب": 25, "انستغرام": 10}},
+    {q: "🚬 أكثر شيء مضر بالصحة", a: {"تدخين": 55, "سهر": 20, "أكل دسم": 15, "غازات": 10}},
+    {q: "💊 أكثر مرض مزعج", a: {"صداع": 45, "برد": 30, "سعال": 15, "حساسية": 10}},
+    {q: "😴 سبب الأرق الأكثر شيوعاً", a: {"تفكير": 50, "هاتف": 30, "قهوة": 15, "ضوضاء": 5}},
+    {q: "🍽️ سبب السمنة الأهم", a: {"أكل دسم": 45, "قلة حركة": 35, "وراثة": 15, "سهر": 5}},
+    {q: "🚬 عمر بداية التدخين", a: {"15-18": 45, "18-21": 30, "أقل من 15": 15, "بعد 21": 10}},
+    {q: "🏃 سبب كسل الناس عن الرياضة", a: {"وقت": 45, "كسل": 35, "مال": 15, "صالات بعيدة": 5}},
+    {q: "📱 سبب إدمان الهاتف", a: {"مواقع التواصل": 50, "ألعاب": 25, "يوتيوب": 15, "شغل": 10}},
+    {q: "👔 سبب البطالة", a: {"اقتصاد": 45, "تخرج كثير": 30, "محسوبية": 15, "كسل": 10}},
+    {q: "🏠 سبب ارتفاع الأسعار", a: {"غلاء عالمي": 45, "سوق سوداء": 30, "حكومة": 15, "مضاربة": 10}},
+    {q: "🚗 سبب الحوادث المرورية", a: {"سرعة": 50, "هاتف": 25, "سائق مبتدئ": 15, "طرقات": 10}},
+    {q: "🗑️ سبب تلوث البيئة", a: {"بلاستيك": 45, "نفايات المصانع": 30, "سيارات": 15, "حرائق": 10}},
+
+    // ======================== 🎁 منوعات إضافية (15 سؤال) ========================
+    {q: "🎁 ما الذي تتمناه الآن", a: {"مال": 45, "صحة": 30, "عمل": 15, "زواج": 10}},
+    {q: "😊 ما الذي يضحكك", a: {"نكت": 45, "أصدقاء": 35, "مسلسلات": 15, "مواقف": 5}},
+    {q: "😢 ما الذي يبكيك", a: {"فراق": 50, "موت": 30, "ظلم": 15, "فشل": 5}},
+    {q: "😡 أكثر شيء يغضبك", a: {"كذب": 45, "ظلم": 35, "نفاق": 15, "سرقة": 5}},
+    {q: "🤔 أكثر شيء تفكر به", a: {"مستقبل": 45, "مال": 35, "عائلة": 15, "عمل": 5}},
+    {q: "❤️ أكثر شيء تحبه", a: {"أمي": 50, "أبي": 25, "زوجتي": 15, "أطفالي": 10}},
+    {q: "🙏 أول شيء تشكره عليه", a: {"الصحة": 45, "العائلة": 35, "الأمان": 15, "المال": 5}},
+    {q: "🎯 هدفك في الحياة", a: {"سعادة": 45, "مال": 30, "عبادة": 15, "نجاح": 10}},
+    {q: "🌟 قدوتك في الحياة", a: {"الرسول": 50, "الأب": 25, "العلماء": 15, "المشاهير": 10}},
+    {q: "🕋 أمنية في الحج", a: {"دعاء مستجاب": 55, "غفران ذنوب": 30, "رؤية الكعبة": 10, "صحة": 5}},
+    {q: "📖 سورة تحب سماعها", a: {"الرحمن": 40, "يس": 35, "الفاتحة": 15, "الملك": 10}},
+    {q: "🕌 يوم الجمعة أفضل أعماله", a: {"الصلاة": 50, "الدعاء": 30, "قراءة الكهف": 15, "الصدقة": 5}},
+    {q: "☀️ أفضل فصل في السنة", a: {"الربيع": 45, "الصيف": 30, "الخريف": 15, "الشتاء": 10}},
+    {q: "🌙 أفضل ليلة في الأسبوع", a: {"الجمعة": 55, "السبت": 15, "الخميس": 15, "الثلاثاء": 15}},
+    {q: "☁️ أفضل حالة جوية", a: {"مشمس": 45, "غائم": 30, "ممطر": 15, "ثلج": 10}},
+
+    // ======================== التكنولوجيا والإنترنت (15 سؤال) ========================
+    {q: "📱 ماركة الهاتف المفضلة", a: {"سامسونج": 40, "آيفون": 35, "شاومي": 15, "هواوي": 10}},
+    {q: "💻 نظام التشغيل المفضل", a: {"ويندوز": 60, "ماك": 20, "لينكس": 10, "كروم": 10}},
+    {q: "📷 أفضل تطبيق تواصل اجتماعي", a: {"فيسبوك": 35, "انستغرام": 35, "تيك توك": 20, "سناب شات": 10}},
+    {q: "🎮 أفضل لعبة فيديو", a: {"فورتنايت": 30, "ماين كرافت": 30, "ببجي": 25, "كول أوف ديوتي": 15}},
+    {q: "📧 أفضل تطبيق مراسلة", a: {"واتساب": 70, "ماسنجر": 15, "تيليغرام": 10, "سيغنال": 5}},
+    {q: "🛒 أفضل موقع تسوق أونلاين", a: {"علي إكسبريس": 40, "أمازون": 35, "جوميا": 15, "شوب آند شيب": 10}},
+    {q: "🎬 أفضل منصة لمشاهدة الأفلام", a: {"يوتيوب": 45, "نتفليكس": 35, "شاهد": 15, "أمازون برايم": 5}},
+    {q: "🔍 أفضل محرك بحث", a: {"جوجل": 85, "بينغ": 8, "ياهو": 5, "دك دك غو": 2}},
+    {q: "💾 أفضل خدمة تخزين سحابي", a: {"جوجل درايف": 45, "آي كلاود": 25, "وان درايف": 20, "دروبوكس": 10}},
+    {q: "🎧 أفضل علامة سماعات", a: {"سامسونج": 30, "آبل": 30, "سوني": 25, "جيه بي إل": 15}},
+    {q: "⌚ أفضل ساعة ذكية", a: {"آبل ووتش": 45, "سامسونج جير": 35, "شياومي": 15, "هواوي": 5}},
+    {q: "🎵 أفضل تطبيق للموسيقى", a: {"يوتيوب ميوزيك": 45, "سبوتيفاي": 30, "أنغامي": 15, "أبل ميوزيك": 10}},
+    {q: "📺 أفضل منصة بث", a: {"يوتيوب": 55, "نتفليكس": 25, "تيك توك": 10, "تويش": 10}},
+    {q: "🔒 أفضل كلمة سر استخدمها الناس", a: {"123456": 40, "password": 30, "qwerty": 15, "admin": 15}},
+    {q: "📸 أفضل تطبيق لتعديل الصور", a: {"سناب شات": 40, "انستغرام": 35, "لايت روم": 15, "بيكس آرت": 10}},
+
+    // ======================== العائلة والمنزل (15 سؤال) ========================
+    {q: "👨‍👩‍👧‍👦 عدد أفراد العائلة المثالي", a: {"4-5 أفراد": 45, "3-4 أفراد": 30, "أكثر من 5": 15, "فردين": 10}},
+    {q: "🏠 غرفة المفضلة في المنزل", a: {"غرفة النوم": 45, "غرفة المعيشة": 30, "المطبخ": 15, "الحمام": 10}},
+    {q: "🛋️ أثاث لا يمكن الاستغناء عنه", a: {"السرير": 50, "الكنبة": 25, "الثلاجة": 15, "التلفاز": 10}},
+    {q: "🍳 وقت الطهي المفضل", a: {"المساء": 45, "الظهر": 30, "الصباح": 15, "أي وقت": 10}},
+    {q: "🧹 مهمة التنظيف الأكثر كرهاً", a: {"غسل الصحون": 45, "كنس الأرض": 25, "ترتيب الغرفة": 20, "مسح الغبار": 10}},
+    {q: "👕 كم مرة تغسل ملابسك في الأسبوع", a: {"مرة": 40, "مرتين": 35, "3 مرات": 15, "كل يوم": 10}},
+    {q: "🌿 نبات منزلي تفضله", a: {"صبار": 45, "ورد": 30, "نعناع": 15, "ريحان": 10}},
+    {q: "🐶 حيوان أليف تفضله", a: {"قط": 50, "كلب": 40, "سمك": 5, "طائر": 5}},
+    {q: "☕ شيء تشربه في الصباح", a: {"قهوة": 48, "شاي": 25, "حليب": 17, "عصير": 10}},
+    {q: "🍳 شيء تأكله على الفطور", a: {"بيض": 40, "جبن": 30, "خبز": 20, "زيتون": 10}},
+    {q: "🚗 وسيلة التنقل إلى العمل", a: {"سيارة": 55, "باص": 20, "مترو": 15, "مشي": 10}},
+    {q: "📱 أول شيء تفتحه على هاتفك صباحاً", a: {"واتساب": 45, "انستغرام": 25, "فيسبوك": 20, "تيك توك": 10}},
+    {q: "🛏️ كم ساعة تنام في الليل", a: {"7-8 ساعات": 50, "5-6 ساعات": 25, "أقل من 5": 15, "أكثر من 8": 10}},
+    {q: "🍽️ أكثر وجبة تهمل خلال اليوم", a: {"الفطور": 45, "الغداء": 15, "العشاء": 30, "سناك": 10}},
+    {q: "🧼 أول شيء تفعله عندما تستيقظ", a: {"غسل الوجه": 40, "شرب ماء": 25, "تفقد الهاتف": 25, "الصلاة": 10}},
+    {q: "🚿 في أي وقت تستحم غالباً", a: {"الصباح": 45, "المساء": 40, "الظهر": 10, "أي وقت": 5}},
+    {q: "📺 كم ساعة تشاهد التلفاز يومياً", a: {"1-2 ساعة": 45, "2-3 ساعات": 30, "أقل من ساعة": 15, "أكثر من 3": 10}},
+    {q: "☕ كم كوب قهوة تشرب يومياً", a: {"1-2 كوب": 50, "3-4 أكواب": 25, "لا أشرب": 15, "أكثر من 4": 10}},
+    {q: "🥡 كم مرة تطلب طعاماً جاهزاً في الأسبوع", a: {"مرة": 40, "مرتين": 30, "لا أطلب": 20, "أكثر من 3 مرات": 10}},
+    {q: "🛒 أين تفضل التسوق", a: {"سوبر ماركت": 45, "سوق شعبي": 30, "أونلاين": 15, "محل صغير": 10}},
+    {q: "💰 كم تنفق يومياً في المعدل", a: {"1000-2000 دج": 40, "500-1000 دج": 35, "أقل من 500": 15, "أكثر من 2000": 10}},
+    {q: "🚶 كم خطوة تمشي يومياً", a: {"3000-5000": 40, "5000-10000": 35, "أقل من 3000": 15, "أكثر من 10000": 10}},
+    {q: "🏋️ كم مرة تمارس الرياضة أسبوعياً", a: {"مرة": 35, "مرتين": 30, "لا أمارس": 25, "3 مرات فأكثر": 10}},
+    {q: "📖 كم كتاب تقرأ في السنة", a: {"لا شيء": 45, "1-2 كتاب": 35, "3-5 كتب": 15, "أكثر من 5": 5}},
+    {q: "🍿 أي نوع أفلام تفضل", a: {"أكشن": 40, "كوميدي": 35, "دراما": 15, "رعب": 10}},
+    {q: "🎵 أي نوع موسيقى تفضل", a: {"راب": 40, "عربية": 35, "بوب": 15, "كلاسيكي": 10}},
+    {q: "📱 كم ساعة تقضي على الهاتف يومياً", a: {"2-4 ساعات": 45, "4-6 ساعات": 30, "أقل من ساعتين": 15, "أكثر من 6": 10}},
+    {q: "🛌 في أي وقت تخلد إلى النوم", a: {"10-11 مساءً": 40, "11-12 ليلاً": 35, "بعد 12": 15, "قبل 10": 10}},
+
+    // ======================== الطعام والشراب (20 سؤال) ========================
+    {q: "🍕 الأكلة السريعة المفضلة", a: {"بيتزا": 45, "برجر": 30, "شاورما": 15, "فاست فوكس": 10}},
+    {q: "🍹 مشروب تفضله في الصيف", a: {"عصير بارد": 45, "مشروب غازي": 30, "ماء بارد": 15, "شاي مثلج": 10}},
+    {q: "🍲 الطبق التقليدي المفضل", a: {"كسكس": 55, "شخشوخة": 20, "دوبارة": 15, "رفيس": 10}},
+    {q: "🍰 الحلوى المفضلة", a: {"شوكولاتة": 45, "غريبة": 25, "مقروط": 20, "بسبوسة": 10}},
+    {q: "🥘 أفضل طبق غداء", a: {"طاجين": 40, "كسكس": 35, "مرقة": 15, "مشوي": 10}},
+    {q: "🥗 أفضل سلطة", a: {"سلطة خضراء": 45, "سلطة مشكلة": 30, "سلطة زيتون": 15, "سلطة تونسية": 10}},
+    {q: "🍚 أفضل طبق جانبي", a: {"رز": 45, "بطاطس مقلية": 35, "خبز": 15, "معكرونة": 5}},
+    {q: "🍝 نوع المعكرونة المفضل", a: {"سباغيتي": 50, "بيني": 20, "فيتوتشيني": 15, "لافيي": 15}},
+    {q: "🍗 أفضل طريقة لطهي الدجاج", a: {"مشوي": 50, "مقلي": 25, "مطبوخ": 20, "محمر": 5}},
+    {q: "🥩 أفضل نوع لحم", a: {"لحم بقر": 45, "لحم خروف": 35, "دجاج": 15, "لحم جمل": 5}},
+    {q: "🧀 أفضل نوع جبن", a: {"جبن أبيض": 45, "جبن أصفر": 35, "جبن روكفور": 10, "جبن مبشور": 10}},
+    {q: "🥐 أفضل مخبوزات", a: {"كرواسون": 45, "باجيت": 25, "خبز مطلوع": 20, "بريوش": 10}},
+    {q: "🍨 أفضل نكهة آيس كريم", a: {"فانيلا": 40, "شوكولاتة": 35, "فراولة": 15, "بستاشيو": 10}},
+    {q: "🥤 أفضل مشروب غازي", a: {"كوكاكولا": 55, "بيبسي": 25, "سبرايت": 10, "فانتا": 10}},
+    {q: "🍵 أفضل شاي", a: {"شاي أحمر": 50, "شاي أخضر": 25, "شاي بالنعناع": 15, "شاي بالحليب": 10}},
+    {q: "☕ أفضل قهوة", a: {"قهوة عربية": 45, "قهوة تركية": 35, "قهوة أمريكية": 10, "نسكافيه": 10}},
+    {q: "🍳 أفضل طريقة لعمل البيض", a: {"مقلي": 45, "مسلوق": 30, "أومليت": 15, "عيون": 10}},
+    {q: "🥣 أفضل شوربة", a: {"حريرة": 45, "شربة فريك": 30, "شربة عدس": 15, "شوربة خضار": 10}},
+    {q: "🍌 أفضل فاكهة", a: {"تفاح": 35, "موز": 30, "برتقال": 25, "فراولة": 10}},
+    {q: "🥜 أفضل نوع مكسرات", a: {"لوز": 40, "فستق": 35, "كاجو": 15, "جوز": 10}},
+
+    // ======================== السفر والأماكن (15 سؤال) ========================
+    {q: "✈️ أحلام السفر إلى", a: {"دبي": 35, "باريس": 30, "تركيا": 20, "لندن": 15}},
+    {q: "🏖️ أفضل وجهة صيفية داخل الجزائر", a: {"بجاية": 35, "جيجل": 30, "وهران": 20, "عنابة": 15}},
+    {q: "🏔️ أفضل وجهة شتوية داخل الجزائر", a: {"تلمسان": 30, "سطيف": 25, "باتنة": 25, "البليدة": 20}},
+    {q: "🏛️ أفضل مدينة تاريخية في الجزائر", a: {"قسنطينة": 40, "تيمقاد": 30, "جميلة": 20, "تيديس": 10}},
+    {q: "🌊 أفضل شاطئ في الجزائر", a: {"تيقزيرت": 35, "أندلس": 25, "ميلفا": 20, "سيدي فرج": 20}},
+    {q: "🕌 أجمل مسجد في الجزائر", a: {"الجامع الكبير": 35, "مسجد كتشاوة": 30, "المسجد الجديد": 20, "مسجد عبد الحميد بن باديس": 15}},
+    {q: "🏰 أفضل معلم سياحي في الجزائر", a: {"القصبة": 45, "بازيليكا القديس أوغسطين": 25, "مقبرة المسيلة": 15, "الكاليفورنيا": 15}},
+    {q: "🏝️ أفضل جزيرة في الجزائر", a: {"جزر حبيبة": 40, "القرايا": 30, "سيركنا": 20, "رأس أكفادو": 10}},
+    {q: "🌳 أجمل غابة في الجزائر", a: {"غابة بولوغين": 40, "غابة زرالدة": 35, "غابة أكفادو": 15, "غابة جيجل": 10}},
+    {q: "🏞️ أفضل منطقة جبلية", a: {"جورايا": 40, "جبل شناوة": 30, "الأوراس": 20, "جبل عيسى": 10}},
+    {q: "🕌 أفضل مسجد في العالم", a: {"المسجد الحرام": 60, "المسجد النبوي": 30, "الأقصى": 5, "جامع الزيتونة": 5}},
+    {q: "🏙️ أفضل مدينة عربية", a: {"دبي": 40, "القاهرة": 30, "الرياض": 20, "الدوحة": 10}},
+    {q: "🌍 أفضل بلد للسفر", a: {"تركيا": 35, "مصر": 25, "إيطاليا": 20, "إسبانيا": 20}},
+    {q: "🏨 نوع السكن المفضل في السفر", a: {"فندق": 50, "أير بي إن بي": 25, "منزل العائلة": 15, "مخيم": 10}},
+    {q: "✈️ أفضل شركة طيران", a: {"الخطوط الجوية الجزائرية": 40, "تركيش": 30, "الإمارات": 20, "قطر": 10}},
+
+    // ======================== التكنولوجيا والإنترنت (15 سؤال) ========================
+    {q: "📱 ماركة الهاتف المفضلة", a: {"سامسونج": 40, "آيفون": 35, "شاومي": 15, "هواوي": 10}},
+    {q: "💻 نظام التشغيل المفضل", a: {"ويندوز": 60, "ماك": 20, "لينكس": 10, "كروم": 10}},
+    {q: "📷 أفضل تطبيق تواصل اجتماعي", a: {"فيسبوك": 35, "انستغرام": 35, "تيك توك": 20, "سناب شات": 10}},
+    {q: "🎮 أفضل لعبة فيديو", a: {"فورتنايت": 30, "ماين كرافت": 30, "ببجي": 25, "كول أوف ديوتي": 15}},
+    {q: "📧 أفضل تطبيق مراسلة", a: {"واتساب": 70, "ماسنجر": 15, "تيليغرام": 10, "سيغنال": 5}},
+    {q: "🛒 أفضل موقع تسوق أونلاين", a: {"علي إكسبريس": 40, "أمازون": 35, "جوميا": 15, "شوب آند شيب": 10}},
+    {q: "🎬 أفضل منصة لمشاهدة الأفلام", a: {"يوتيوب": 45, "نتفليكس": 35, "شاهد": 15, "أمازون برايم": 5}},
+    {q: "🔍 أفضل محرك بحث", a: {"جوجل": 85, "بينغ": 8, "ياهو": 5, "دك دك غو": 2}},
+    {q: "💾 أفضل خدمة تخزين سحابي", a: {"جوجل درايف": 45, "آي كلاود": 25, "وان درايف": 20, "دروبوكس": 10}},
+    {q: "🎧 أفضل علامة سماعات", a: {"سامسونج": 30, "آبل": 30, "سوني": 25, "جيه بي إل": 15}},
+    {q: "⌚ أفضل ساعة ذكية", a: {"آبل ووتش": 45, "سامسونج جير": 35, "شياومي": 15, "هواوي": 5}},
+    {q: "🎵 أفضل تطبيق للموسيقى", a: {"يوتيوب ميوزيك": 45, "سبوتيفاي": 30, "أنغامي": 15, "أبل ميوزيك": 10}},
+    {q: "📺 أفضل منصة بث", a: {"يوتيوب": 55, "نتفليكس": 25, "تيك توك": 10, "تويش": 10}},
+    {q: "🔒 أفضل كلمة سر استخدمها الناس", a: {"123456": 40, "password": 30, "qwerty": 15, "admin": 15}},
+    {q: "📸 أفضل تطبيق لتعديل الصور", a: {"سناب شات": 40, "انستغرام": 35, "لايت روم": 15, "بيكس آرت": 10}},
+
+    // ======================== المال والعمل (10 سؤال) ========================
+    {q: "💰 المهنة الأكثر احتراماً في المجتمع", a: {"طبيب": 50, "مهندس": 25, "أستاذ": 15, "محامي": 10}},
+    {q: "💸 أكثر المصاريف الشهرية", a: {"الطعام": 45, "الإيجار": 30, "المواصلات": 15, "الملابس": 10}},
+    {q: "🏦 أفضل طريقة للادخار", a: {"بنك": 45, "جمعية": 25, "ذهب": 20, "عقار": 10}},
+    {q: "💳 وسيلة الدفع المفضلة", a: {"نقدي": 50, "بطاقة بنكية": 30, "هاتف": 15, "شيك": 5}},
+    {q: "💼 صفة مهمة في العمل", a: {"أمانة": 45, "اجتهاد": 35, "إبداع": 15, "قيادة": 5}},
+    {q: "🕐 ساعات العمل المثالية يومياً", a: {"8 ساعات": 50, "6 ساعات": 30, "7 ساعات": 15, "أقل من 6": 5}},
+    {q: "💼 أفضل مجال عمل", a: {"تكنولوجيا": 40, "طب": 30, "تعليم": 20, "هندسة": 10}},
+    {q: "💸 قيمة الراتب المثالي شهرياً", a: {"أكثر من 10 مليون": 45, "5-10 مليون": 35, "3-5 مليون": 15, "أقل من 3": 5}},
+    {q: "🏢 مكان العمل المفضل", a: {"منزل": 45, "مكتب": 35, "ميدان": 15, "كافيه": 5}},
+    {q: "📈 أفضل استثمار للمستقبل", a: {"عقار": 50, "ذهب": 25, "بزنس": 15, "سندات": 10}},
+
+    // ======================== الصحة والرياضة (10 سؤال) ========================
+    {q: "💪 أفضل رياضة للحفاظ على اللياقة", a: {"جري": 40, "سباحة": 30, "تمارين منزلية": 20, "كرة قدم": 10}},
+    {q: "🥗 أفضل نظام غذائي صحي", a: {"خضار وفواكه": 45, "بروتين": 25, "قليل الكربوهيدرات": 20, "صيام متقطع": 10}},
+    {q: "💊 فيتامين تفضله", a: {"فيتامين سي": 40, "فيتامين د": 35, "فيتامين ب": 15, "فيتامين هـ": 10}},
+    {q: "🩺 عدد مرات زيارة الطبيب في السنة", a: {"مرة": 45, "لا شيء": 30, "مرتين": 15, "أكثر من 3": 10}},
+    {q: "😴 كم ساعة نوم تحتاج يومياً", a: {"8 ساعات": 50, "7 ساعات": 30, "6 ساعات": 15, "أكثر من 8": 5}},
+    {q: "🚭 عادة تريد التخلص منها", a: {"تدخين": 60, "نتف هاتف": 20, "سهر": 15, "أكل زائد": 5}},
+    {q: "💧 كم لتر ماء تشرب يومياً", a: {"2-3 لتر": 45, "1-2 لتر": 35, "أقل من لتر": 15, "أكثر من 3": 5}},
+    {q: "🏋️ أفضل وقت للرياضة", a: {"الصباح": 45, "المساء": 40, "الظهر": 10, "أي وقت": 5}},
+    {q: "🧘 أفضل نشاط للاسترخاء", a: {"مشي": 40, "قراءة": 30, "يوغا": 15, "تأمل": 15}},
+    {q: "🥤 مشروب صحي تفضله", a: {"ماء": 55, "عصير طبيعي": 30, "شاي أخضر": 10, "حليب": 5}},
+
+    // ======================== التعليم والمعرفة (10 سؤال) ========================
+    {q: "📚 أحب مادة دراسية", a: {"رياضيات": 35, "عربية": 30, "علوم": 20, "تاريخ": 15}},
+    {q: "🎓 المرحلة الدراسية المفضلة", a: {"جامعة": 40, "ثانوية": 30, "متوسطة": 20, "ابتدائية": 10}},
+    {q: "📖 كم ساعة تدرس في اليوم", a: {"1-2 ساعة": 45, "2-3 ساعات": 30, "أقل من ساعة": 15, "أكثر من 3": 10}},
+    {q: "📝 أفضل طريقة للمذاكرة", a: {"قراءة": 40, "كتابة": 35, "سماع": 15, "مجموعات": 10}},
+    {q: "📱 أفضل تطبيق تعليمي", a: {"يوتيوب": 60, "دوروس": 20, "أكاديمية خان": 10, "كورسيرا": 10}},
+    {q: "🗣️ أفضل لغة للتعلم", a: {"إنجليزية": 60, "فرنسية": 25, "إسبانية": 10, "ألمانية": 5}},
+    {q: "🎓 الشهادة الأعلى التي تطمح لها", a: {"ماجستير": 45, "دكتوراه": 35, "بكالوريوس": 15, "دبلوم": 5}},
+    {q: "🏫 أفضل جامعة في الجزائر", a: {"جامعة الجزائر": 40, "جامعة وهران": 25, "جامعة قسنطينة": 20, "جامعة سطيف": 15}},
+    {q: "📋 أصعب امتحان في الحياة", a: {"بكالوريا": 70, "جامعة": 15, "قيادة": 10, "مهني": 5}},
+    {q: "🎓 أكثر تخصص مطلوب", a: {"طب": 45, "إعلام آلي": 30, "هندسة": 15, "إدارة أعمال": 10}},
+
+    // ======================== الأمنيات والأحلام (10 سؤال) ========================
+    {q: "💭 الحلم الأكبر في الحياة", a: {"بيت": 35, "سيارة": 30, "سفر": 20, "زواج": 15}},
+    {q: "🌍 أمنية لو تحققت", a: {"السفر حول العالم": 40, "شراء منزل": 35, "بدء مشروع": 15, "النجاح الدراسي": 10}},
+    {q: "💰 لو ربحت 100 مليون دينار", a: {"شراء منزل": 40, "سفر": 25, "استثمار": 20, "مساعدة الآخرين": 15}},
+    {q: "🎁 أمنية عيد الميلاد", a: {"مال": 35, "هاتف": 30, "سيارة": 25, "سفر": 10}},
+    {q: "🕰️ لو عاد بك الزمن", a: {"أدرس أكثر": 45, "أسافر أكثر": 25, "أستثمر": 20, "أتزوج مبكراً": 10}},
+    {q: "💼 المشروع الذي تحلم به", a: {"مطعم": 40, "بزنس أونلاين": 30, "متجر ملابس": 20, "صالون": 10}},
+    {q: "👤 الشخص الذي تتمنى لقاءه", a: {"ميسي": 30, "رياض محرز": 25, "جاكسون": 25, "بيل غيتس": 20}},
+    {q: "🏆 الإنجاز الذي تفتخر به", a: {"شهادة": 45, "عمل": 30, "بيت": 15, "زواج": 10}},
+    {q: "👨‍👩‍👧‍👦 الشيء الأهم في الحياة", a: {"العائلة": 55, "الصحة": 30, "المال": 10, "الأصدقاء": 5}},
+    {q: "🌟 سر السعادة", a: {"الرضا": 45, "المال": 25, "العائلة": 20, "الصحة": 10}},
+    {q: "👵 من تشعر بالقرب منه في العائلة", a: {"الأم": 45, "الأب": 25, "الأخ": 15, "الأخت": 15}},
+    {q: "🎁 أفضل هدية للوالدين", a: {"ملابس": 35, "عطر": 35, "مال": 20, "طعام": 10}},
+    {q: "🏡 نوع المنزل المفضل", a: {"فيلا": 45, "شقة": 35, "بيت تقليدي": 15, "دوبلكس": 5}},
+    {q: "🔑 كم مفتاحاً تحمل معك عادةً", a: {"مفتاحان": 40, "مفتاح واحد": 35, "3 مفاتيح": 15, "أكثر من 3": 10}},
+    {q: "🚪 كم باباً في منزلك", a: {"4-6 أبواب": 40, "7-10 أبواب": 35, "أقل من 4": 15, "أكثر من 10": 10}},
+    {q: "💡 كم لمبة في بيتك", a: {"10-15 لمبة": 40, "15-20 لمبة": 35, "أقل من 10": 15, "أكثر من 20": 10}},
+
+    // ======================== المال والعمل (10 سؤال) ========================
+    {q: "💰 المهنة الأكثر احتراماً في المجتمع", a: {"طبيب": 50, "مهندس": 25, "أستاذ": 15, "محامي": 10}},
+    {q: "💸 أكثر المصاريف الشهرية", a: {"الطعام": 45, "الإيجار": 30, "المواصلات": 15, "الملابس": 10}},
+    {q: "🏦 أفضل طريقة للادخار", a: {"بنك": 45, "جمعية": 25, "ذهب": 20, "عقار": 10}},
+    {q: "💳 وسيلة الدفع المفضلة", a: {"نقدي": 50, "بطاقة بنكية": 30, "هاتف": 15, "شيك": 5}},
+    {q: "💼 صفة مهمة في العمل", a: {"أمانة": 45, "اجتهاد": 35, "إبداع": 15, "قيادة": 5}},
+    {q: "🕐 ساعات العمل المثالية يومياً", a: {"8 ساعات": 50, "6 ساعات": 30, "7 ساعات": 15, "أقل من 6": 5}},
+    {q: "💼 أفضل مجال عمل", a: {"تكنولوجيا": 40, "طب": 30, "تعليم": 20, "هندسة": 10}},
+    {q: "💸 قيمة الراتب المثالي شهرياً", a: {"أكثر من 10 مليون": 45, "5-10 مليون": 35, "3-5 مليون": 15, "أقل من 3": 5}},
+    {q: "🏢 مكان العمل المفضل", a: {"منزل": 45, "مكتب": 35, "ميدان": 15, "كافيه": 5}},
+    {q: "📈 أفضل استثمار للمستقبل", a: {"عقار": 50, "ذهب": 25, "بزنس": 15, "سندات": 10}},
+
+    // ======================== الصحة والرياضة (10 سؤال) ========================
+    {q: "💪 أفضل رياضة للحفاظ على اللياقة", a: {"جري": 40, "سباحة": 30, "تمارين منزلية": 20, "كرة قدم": 10}},
+    {q: "🥗 أفضل نظام غذائي صحي", a: {"خضار وفواكه": 45, "بروتين": 25, "قليل الكربوهيدرات": 20, "صيام متقطع": 10}},
+    {q: "💊 فيتامين تفضله", a: {"فيتامين سي": 40, "فيتامين د": 35, "فيتامين ب": 15, "فيتامين هـ": 10}},
+    {q: "🩺 عدد مرات زيارة الطبيب في السنة", a: {"مرة": 45, "لا شيء": 30, "مرتين": 15, "أكثر من 3": 10}},
+    {q: "😴 كم ساعة نوم تحتاج يومياً", a: {"8 ساعات": 50, "7 ساعات": 30, "6 ساعات": 15, "أكثر من 8": 5}},
+    {q: "🚭 عادة تريد التخلص منها", a: {"تدخين": 60, "نتف هاتف": 20, "سهر": 15, "أكل زائد": 5}},
+    {q: "💧 كم لتر ماء تشرب يومياً", a: {"2-3 لتر": 45, "1-2 لتر": 35, "أقل من لتر": 15, "أكثر من 3": 5}},
+    {q: "🏋️ أفضل وقت للرياضة", a: {"الصباح": 45, "المساء": 40, "الظهر": 10, "أي وقت": 5}},
+    {q: "🧘 أفضل نشاط للاسترخاء", a: {"مشي": 40, "قراءة": 30, "يوغا": 15, "تأمل": 15}},
+    {q: "🥤 مشروب صحي تفضله", a: {"ماء": 55, "عصير طبيعي": 30, "شاي أخضر": 10, "حليب": 5}},
+
+
+    {q: "📚 أحب مادة دراسية", a: {"رياضيات": 35, "عربية": 30, "علوم": 20, "تاريخ": 15}},
+    {q: "🎓 المرحلة الدراسية المفضلة", a: {"جامعة": 40, "ثانوية": 30, "متوسطة": 20, "ابتدائية": 10}},
+    {q: "📖 كم ساعة تدرس في اليوم", a: {"1-2 ساعة": 45, "2-3 ساعات": 30, "أقل من ساعة": 15, "أكثر من 3": 10}},
+    {q: "📝 أفضل طريقة للمذاكرة", a: {"قراءة": 40, "كتابة": 35, "سماع": 15, "مجموعات": 10}},
+    {q: "📱 أفضل تطبيق تعليمي", a: {"يوتيوب": 60, "دوروس": 20, "أكاديمية خان": 10, "كورسيرا": 10}},
+    {q: "🗣️ أفضل لغة للتعلم", a: {"إنجليزية": 60, "فرنسية": 25, "إسبانية": 10, "ألمانية": 5}},
+    {q: "🎓 الشهادة الأعلى التي تطمح لها", a: {"ماجستير": 45, "دكتوراه": 35, "بكالوريوس": 15, "دبلوم": 5}},
+    {q: "🏫 أفضل جامعة في الجزائر", a: {"جامعة الجزائر": 40, "جامعة وهران": 25, "جامعة قسنطينة": 20, "جامعة سطيف": 15}},
+    {q: "📋 أصعب امتحان في الحياة", a: {"بكالوريا": 70, "جامعة": 15, "قيادة": 10, "مهني": 5}},
+    {q: "🎓 أكثر تخصص مطلوب", a: {"طب": 45, "إعلام آلي": 30, "هندسة": 15, "إدارة أعمال": 10}},
+
+  
+    {q: "💭 الحلم الأكبر في الحياة", a: {"بيت": 35, "سيارة": 30, "سفر": 20, "زواج": 15}},
+    {q: "🌍 أمنية لو تحققت", a: {"السفر حول العالم": 40, "شراء منزل": 35, "بدء مشروع": 15, "النجاح الدراسي": 10}},
+    {q: "💰 لو ربحت 100 مليون دينار", a: {"شراء منزل": 40, "سفر": 25, "استثمار": 20, "مساعدة الآخرين": 15}},
+    {q: "🎁 أمنية عيد الميلاد", a: {"مال": 35, "هاتف": 30, "سيارة": 25, "سفر": 10}},
+    {q: "🕰️ لو عاد بك الزمن", a: {"أدرس أكثر": 45, "أسافر أكثر": 25, "أستثمر": 20, "أتزوج مبكراً": 10}},
+    {q: "💼 المشروع الذي تحلم به", a: {"مطعم": 40, "بزنس أونلاين": 30, "متجر ملابس": 20, "صالون": 10}},
+    {q: "👤 الشخص الذي تتمنى لقاءه", a: {"ميسي": 30, "رياض محرز": 25, "جاكسون": 25, "بيل غيتس": 20}},
+    {q: "🏆 الإنجاز الذي تفتخر به", a: {"شهادة": 45, "عمل": 30, "بيت": 15, "زواج": 10}},
+    {q: "👨‍👩‍👧‍👦 الشيء الأهم في الحياة", a: {"العائلة": 55, "الصحة": 30, "المال": 10, "الأصدقاء": 5}},
+    {q: "🌟 سر السعادة", a: {"الرضا": 45, "المال": 25, "العائلة": 20, "الصحة": 10}},,
+    {q: "👟 شيء تحتاجه للرياضة", a: {"حذاء": 40, "ملابس": 30, "كرة": 20, "ماء": 10}},
+
+    {q: "🚓 وظيفة معروفة", a: {"شرطي": 40, "طبيب": 30, "معلم": 20, "سائق": 10}},
+    {q: "🏥 مكان للعلاج", a: {"مستشفى": 50, "عيادة": 30, "صيدلية": 20, "بيت": 0}},
+    {q: "💊 دواء معروف", a: {"باراسيتامول": 40, "أسبرين": 30, "مضاد": 20, "فيتامين": 10}},
+
+    {q: "💻 جهاز إلكتروني", a: {"هاتف": 50, "حاسوب": 30, "تلفاز": 10, "تابلت": 10}},
+    {q: "🔌 شيء يحتاج كهرباء", a: {"تلفاز": 40, "ثلاجة": 30, "حاسوب": 20, "غسالة": 10}},
+    {q: "📡 شيء فيه إنترنت", a: {"هاتف": 50, "حاسوب": 30, "راوتر": 10, "تلفاز": 10}},
+        {q: "🥤 مشروب غازي مشهور", a: {"كوكاكولا": 50, "بيبسي": 30, "سبرايت": 12, "فانتا": 8}},
+        {q: "🧼 جهاز في المطبخ لغسل الصحون", a: {"غسالة": 45, "جلية": 25, "صابون": 15, "سفنجة": 15}},
+        {q: "🚗 وسيلة نقل شهيرة", a: {"سيارة": 55, "باص": 20, "دراجة": 15, "قطار": 10}},
+        {q: "🐱 حيوان أليف مفضل", a: {"قط": 45, "كلب": 40, "سمك": 10, "هامستر": 5}},
+        {q: "📚 مادة دراسية", a: {"رياضيات": 40, "عربي": 25, "علوم": 20, "تاريخ": 15}},
+        {q: "🏫 مكان الدراسة", a: {"مدرسة": 60, "جامعة": 25, "معهد": 10, "بيت": 5}},
+    ];
+
+    // ======================== قاموس المرادفات (يمكنك إضافة المزيد) ========================
+    const synonymMap = {
+        "قهوة": ["قهوي", "قهوه", "qahwa", "coffee"],
+        "شاي": ["شاى", "شاهي", "tea"],
+        "بيتزا": ["بيتزة", "pizza"],
+        "برجر": ["برغر", "burger"],
+        "غسالة": ["غسال", "غسله", "غاسلة", "غسالة صحون"],
+        "سيارة": ["سياره", "سيار", "سيرة", "car", "عربية"],
+        "قط": ["قطة", "بسبس", "cat"],
+        "كلب": ["كلبة", "dog"],
+        "تفاح": ["تفاحة", "apple"],
+        "موز": ["موزة", "banana"],
+    };
+
+    // ======================== الدوال الذكية لتصحيح الأخطاء ========================
+    
+    // دالة التطبيع الأساسية
+    function normalizeWord(word) {
+        if (!word) return "";
+        let normalized = word.trim().toLowerCase();
+        normalized = normalized.replace(/^(ال|ال)/, '');
+        normalized = normalized.replace(/[ةه]$/, '');
+        normalized = normalized.replace(/[ىي]$/, 'ا');
+        normalized = normalized.replace(/[ًًٌٍَُِّّْ]/, '');
+        return normalized;
+    }
+
+    // 1. دالة لتحليل الكلمات ومعرفة جذورها
+    function getWordRoot(word) {
+        let w = word.toLowerCase().trim();
+        w = w.replace(/^ال/, '');
+        w = w.replace(/[ةه]$/, '');
+        w = w.replace(/[ىي]$/, 'ا');
+        w = w.replace(/[يي]$/, '');
+        return w;
+    }
+
+    // 2. دالة لحساب التشابه بين الكلمات (خوارزمية ليفنشتاين)
+    function similarityScore(a, b) {
+        if (!a || !b) return 0;
+        a = a.toLowerCase();
+        b = b.toLowerCase();
+        if (a === b) return 1;
+        
+        const track = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+        for (let i = 0; i <= a.length; i++) track[0][i] = i;
+        for (let j = 0; j <= b.length; j++) track[j][0] = j;
+        
+        for (let j = 1; j <= b.length; j++) {
+            for (let i = 1; i <= a.length; i++) {
+                const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
+                track[j][i] = Math.min(
+                    track[j][i - 1] + 1,
+                    track[j - 1][i] + 1,
+                    track[j - 1][i - 1] + indicator
+                );
+            }
+        }
+        const distance = track[b.length][a.length];
+        const maxLen = Math.max(a.length, b.length);
+        return 1 - (distance / maxLen);
+    }
+
+    // 3. الدالة المتقدمة لمطابقة أي كلمة جديدة (تعمل تلقائياً مع الأخطاء)
+    function advancedMatch(userAnswer, correctAnswer) {
+        if (!userAnswer || !correctAnswer) return false;
+        
+        const user = userAnswer.trim().toLowerCase();
+        const correct = correctAnswer.trim().toLowerCase();
+        
+        // 1. تطابق تام
+        if (user === correct) return true;
+        
+        // 2. تطابق بعد التطبيع الأساسي
+        if (normalizeWord(user) === normalizeWord(correct)) return true;
+        
+        // 3. تطابق جذر الكلمة
+        if (getWordRoot(user) === getWordRoot(correct)) return true;
+        
+        // 4. التشابه العالي (80% أو أكثر) - يقبل الأخطاء البسيطة
+        if (similarityScore(user, correct) >= 0.80) return true;
+        
+        // 5. البحث في المرادفات المسجلة
+        for (let key in synonymMap) {
+            if (correct === key && synonymMap[key].includes(user)) return true;
+            if (user === key && synonymMap[key].includes(correct)) return true;
+        }
+        
+        // 6. التحقق من الكلمات التي تختلف بحرف واحد فقط
+        if (user.length === correct.length) {
+            let diffCount = 0;
+            for (let i = 0; i < user.length; i++) {
+                if (user[i] !== correct[i]) diffCount++;
+            }
+            if (diffCount === 1) return true;
+        }
+        
+        // 7. إضافة أو حذف حرف واحد
+        if (Math.abs(user.length - correct.length) === 1) {
+            const shorter = user.length < correct.length ? user : correct;
+            const longer = user.length < correct.length ? correct : user;
+            for (let i = 0; i < longer.length; i++) {
+                const testWord = longer.slice(0, i) + longer.slice(i + 1);
+                if (testWord === shorter) return true;
+            }
+        }
+        
+        return false;
+    }
+
+    // 8. دالة المطابقة الرئيسية
+    function isMatchingAnswer(userAnswer, correctAnswer) {
+        return advancedMatch(userAnswer, correctAnswer);
+    }
+
+    // دوال إنشاء العناصر المتحركة
+    function createParticles() {
+        const container = document.getElementById('particles');
+        for(let i=0;i<30;i++) {
+            let p = document.createElement('div');
+            p.className = 'particle';
+            p.style.left = Math.random()*100+'%';
+            p.style.width = (Math.random()*15+5)+'px';
+            p.style.height = p.style.width;
+            p.style.background = `radial-gradient(circle, #ff6b6b, #a855f7)`;
+            p.style.animationDelay = Math.random()*15+'s';
+            container.appendChild(p);
+        }
+    }
+    
+    function createBubbles() {
+        const cont = document.getElementById('bubbles');
+        for(let i=0;i<20;i++) {
+            let b = document.createElement('div');
+            b.className = 'bubble';
+            b.style.left = Math.random()*100+'%';
+            b.style.width = (Math.random()*40+20)+'px';
+            b.style.height = b.style.width;
+            b.style.animationDelay = Math.random()*8+'s';
+            cont.appendChild(b);
+        }
+    }
+    
+    createParticles();
+    createBubbles();
+
+    // دوال مساعدة
+    function showNotification(msg, type="success") {
+        let notif = document.createElement('div');
+        notif.className = `notification ${type}`;
+        notif.innerText = msg;
+        document.body.appendChild(notif);
+        setTimeout(() => notif.remove(), 2800);
+    }
+    
+    function showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
+        document.getElementById(id).classList.remove('hidden');
+    }
+
+    function getRandomQuestions(count) {
+        let shuffled = [...allQuestions];
+        for(let i=shuffled.length-1;i>0;i--){
+            let j=Math.floor(Math.random()*(i+1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled.slice(0, count);
+    }
+
+    // دوال اللعبة
+    function createRoom() {
+        myName = document.getElementById('userName').value.trim();
+        if(!myName) { showNotification("✏️ اكتب اسمك أولاً!", "error"); return; }
+        currentRoom = Math.floor(1000+Math.random()*9000).toString();
+        isHost = true;
+        db.ref('rooms/'+currentRoom).set({ 
+            status:'waiting', 
+            qIndex:0, 
+            players:{ [myId]:{ name:myName, score:0, found:[] } }, 
+            timer:45, 
+            questions:null 
+        }).then(()=>{ 
+            showScreen('waitingScreen'); 
+            document.getElementById('roomCode').innerText=currentRoom; 
+            listenToRoom(); 
+            showNotification(`✅ تم إنشاء الغرفة! الرمز: ${currentRoom}`); 
+        });
+    }
+    
+    function joinRoom() {
+        myName = document.getElementById('userName').value.trim();
+        let rCode = document.getElementById('roomInput').value.trim();
+        if(!myName || rCode.length!==4) { showNotification("⚠️ تأكد من الاسم والرمز!","error"); return; }
+        db.ref('rooms/'+rCode).once('value', snap=>{
+            if(snap.exists()){
+                if(Object.keys(snap.val().players).length>=4) { showNotification("❌ الغرفة ممتلئة!","error"); return; }
+                currentRoom = rCode;
+                db.ref('rooms/'+currentRoom+'/players/'+myId).set({ name:myName, score:0, found:[] });
+                showScreen('waitingScreen'); 
+                document.getElementById('roomCode').innerText=currentRoom; 
+                listenToRoom();
+                showNotification(`✅ انضممت إلى الغرفة ${rCode}`);
+            } else showNotification("❌ الغرفة غير موجودة!","error");
+        });
+    }
+    
+    function listenToRoom() {
+        db.ref('rooms/'+currentRoom).on('value', snap=>{
+            let data=snap.val(); 
+            if(!data) return;
+            let players=data.players;
+            let plist=document.getElementById('playerList'); 
+            plist.innerHTML="";
+            for(let id in players){
+                plist.innerHTML+=`<div class="player-card ${id===myId?'you':''}"><div>${id===myId?'👤':'👥'} ${players[id].name}</div><div>⭐ ${players[id].score}</div></div>`;
+            }
+            if(isHost && Object.keys(players).length>=2) document.getElementById('startBtn').hidden=false;
+            if(data.status==='playing' && document.getElementById('gameScreen').classList.contains('hidden')) {
+                showScreen('gameScreen');
+            }
+            if(data.status==='playing') updateGameUI(data);
+            if(data.status==='finished') { 
+                clearInterval(timerInterval); 
+                showFinalResults(players); 
+            }
+        });
+    }
+    
+    function startGame() {
+        currentGameQuestions = getRandomQuestions(4);
+        db.ref('rooms/'+currentRoom).update({ 
+            status:'playing', 
+            qIndex:0, 
+            timer:45, 
+            questions:currentGameQuestions 
+        });
+        startTimer();
+        showNotification("🎮 بدأت اللعبة! حظاً موفقاً!");
+    }
+    
+    function startTimer() {
+        if(timerInterval) clearInterval(timerInterval);
+        let timeLeft=45;
+        timerInterval = setInterval(()=>{
+            timeLeft--;
+            db.ref('rooms/'+currentRoom).update({ timer:timeLeft });
+            if(document.getElementById('timeLeftDisplay')) 
+                document.getElementById('timeLeftDisplay').innerText=timeLeft;
+            if(document.getElementById('questionProgress'))
+                document.getElementById('questionProgress').style.width = (timeLeft/45)*100+'%';
+            if(timeLeft<=0){ 
+                clearInterval(timerInterval); 
+                nextQuestionOrFinish(); 
+            }
+        },1000);
+    }
+    
+    function updateGameUI(data) {
+        let qs = data.questions || currentGameQuestions;
+        if(!qs.length) return;
+        let qd = qs[data.qIndex];
+        if(!qd) return;
+        document.getElementById('questionText').innerHTML = qd.q;
+        document.getElementById('qCount').innerHTML = `${data.qIndex+1}`;
+        document.getElementById('totalQ').innerHTML = '4';
+        document.getElementById('timeLeftDisplay').innerHTML = data.timer;
+        document.getElementById('myScoreDisplay').innerHTML = data.players[myId]?.score || 0;
+        let myFound = data.players[myId]?.found || [];
+        let board = document.getElementById('answersBoard'); 
+        board.innerHTML="";
+        let idx=1;
+        for(let ans in qd.a){
+            let isFound = myFound.includes(ans);
+            board.innerHTML += `<div class="ans-item ${isFound?'found':''}">
+                <div class="ans-text">
+                    <span class="ans-number">${idx}</span>
+                    ${isFound?`✅ ${ans}`:'❓ لم يكتشف بعد'}
+                </div>
+                <span class="ans-value">${isFound?qd.a[ans]+'%':'???'}</span>
+            </div>`;
+            idx++;
+        }
+    }
+    
+    function submitGuess() {
+        let guess = document.getElementById('guessInput').value.trim();
+        let fb = document.getElementById('feedbackMsg');
+        if(!guess){ 
+            fb.className='feedback-msg feedback-error'; 
+            fb.innerHTML="✏️ اكتب تخميناً أولاً!"; 
+            return; 
+        }
+        db.ref('rooms/'+currentRoom).once('value', snap=>{
+            let data=snap.val(); 
+            if(!data || data.status!=='playing') return;
+            let qs=data.questions||currentGameQuestions;
+            let qd=qs[data.qIndex];
+            let matched=null;
+            // استخدام دالة المطابقة الذكية
+            for(let ans in qd.a) {
+                if(isMatchingAnswer(guess, ans)) { 
+                    matched=ans; 
+                    break; 
+                }
+            }
+            let myFound=data.players[myId]?.found||[];
+            if(matched && !myFound.includes(matched)){
+                let pts=qd.a[matched];
+                let newScore=(data.players[myId]?.score||0)+pts;
+                let newFound=[...myFound, matched];
+                db.ref(`rooms/${currentRoom}/players/${myId}`).update({ score:newScore, found:newFound });
+                document.getElementById('guessInput').value='';
+                fb.className='feedback-msg feedback-success';
+                fb.innerHTML=`🎉 صحيح! +${pts} نقطة (${matched})`;
+                showNotification(`✅ +${pts} نقطة!`, "success");
+                updateGameUI({...data, players:{...data.players, [myId]:{...data.players[myId], score:newScore, found:newFound}}});
+                playSuccessSound();
+            } else if(matched && myFound.includes(matched)){
+                fb.className='feedback-msg feedback-error';
+                fb.innerHTML="⚠️ هذه الإجابة سبق أن اكتشفتها!";
+                document.getElementById('guessInput').value='';
+            } else {
+                document.getElementById('guessInput').value='';
+                fb.className='feedback-msg feedback-error';
+                fb.innerHTML=`❌ "${guess}" غير صحيح! تم مسح الحقل - حاول مرة أخرى`;
+                showNotification(`❌ "${guess}" غير صحيح!`, "error");
+                playErrorSound();
+            }
+        });
+    }
+    
+    function playSuccessSound() {
+        try {
+            let ctx = new (window.AudioContext||window.webkitAudioContext)();
+            let osc = ctx.createOscillator();
+            let gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 523;
+            gain.gain.value = 0.2;
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.3);
+            osc.stop(ctx.currentTime + 0.3);
+            if(ctx.state==='suspended') ctx.resume();
+        } catch(e) {}
+    }
+    
+    function playErrorSound() {
+        try {
+            let ctx = new (window.AudioContext||window.webkitAudioContext)();
+            let osc = ctx.createOscillator();
+            let gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 400;
+            gain.gain.value = 0.15;
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2);
+            osc.stop(ctx.currentTime + 0.2);
+            if(ctx.state==='suspended') ctx.resume();
+        } catch(e) {}
+    }
+    
+    function nextQuestionOrFinish() {
+        if(!isHost) return;
+        db.ref('rooms/'+currentRoom).once('value', snap=>{
+            let data=snap.val();
+            if(data.qIndex < 3){
+                db.ref('rooms/'+currentRoom).update({ qIndex: data.qIndex+1, timer:45 });
+                startTimer();
+            } else {
+                db.ref('rooms/'+currentRoom).update({ status:'finished' });
+            }
+        });
+    }
+    
+    function showFinalResults(players){
+        showScreen('resultScreen');
+        let sorted=Object.values(players).sort((a,b)=>b.score-a.score);
+        document.getElementById('winnerName').innerText=sorted[0].name;
+        let rankDiv=document.getElementById('rankings'); 
+        rankDiv.innerHTML="";
+        sorted.forEach((p,i)=>{
+            let medal = i===0?'🏆':(i===1?'🥈':(i===2?'🥉':`${i+1}📌`));
+            rankDiv.innerHTML+=`<div class="rank-item"><div>${medal} ${p.name}</div><div>⭐ ${p.score} نقطة</div></div>`;
+        });
+        for(let i=0;i<40;i++){ 
+            let c=document.createElement('div'); 
+            c.className='confetti'; 
+            c.style.left=Math.random()*100+'%'; 
+            c.style.backgroundColor=['#ffd700','#ff6b6b','#4ecdc4','#a855f7'][Math.floor(Math.random()*4)]; 
+            document.body.appendChild(c); 
+            setTimeout(()=>c.remove(),3000);
+        }
+    }
+    
+    function leaveRoom(){ 
+        if(currentRoom) db.ref('rooms/'+currentRoom+'/players/'+myId).remove(); 
+        location.reload(); 
+    }
+    
+    document.addEventListener('keypress',(e)=>{ 
+        if(e.key==='Enter' && !document.getElementById('gameScreen').classList.contains('hidden')) submitGuess(); 
+    });
+</script>
 </body>
 </html>
