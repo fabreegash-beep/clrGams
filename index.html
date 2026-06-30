@@ -1,1008 +1,860 @@
-
 <!DOCTYPE html>
-
 <html lang="ar" dir="rtl">
-
 <head>
-
 <meta charset="UTF-8">
-
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>تطبيق السينما والبث الحي - بث منفصل للشاشة والصوت</title>
-
-
-<script type="module">
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
-
-import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
-
-
-
-// إعدادات Firebase
-
-const firebaseConfig = {
-
-apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
-
-authDomain: "my-online-store-34f34.firebaseapp.com",
-
-databaseURL: "https://my-online-store-34f34-default-rtdb.europe-west1.firebasedatabase.app",
-
-projectId: "my-online-store-34f34",
-
-storageBucket: "my-online-store-34f34.firebasestorage.app",
-
-messagingSenderId: "288655549705",
-
-appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
-
-};
-
-
-
-const app = initializeApp(firebaseConfig);
-
-const db = getDatabase(app);
-
-
-
-// خوادم STUN/TURN المحسنة
-
-const iceServers = {
-
-iceServers: [
-
-{ urls: 'stun:stun.l.google.com:19302' },
-
-{ urls: 'stun:stun1.l.google.com:19302' },
-
-{ urls: 'stun:stun2.l.google.com:19302' },
-
-{ urls: 'stun:stun3.l.google.com:19302' },
-
-{ urls: 'stun:stun4.l.google.com:19302' },
-
-{ urls: 'stun:stun.relay.metered.ca:80' },
-
-{
-
-urls: 'turn:relay.metered.ca:80',
-
-username: 'b12f3d7f4a5c3e8d9f0a1b2c',
-
-credential: 'd4e5f6g7h8i9j0k1l2m3'
-
-},
-
-{
-
-urls: 'turn:relay.metered.ca:443',
-
-username: 'b12f3d7f4a5c3e8d9f0a1b2c',
-
-credential: 'd4e5f6g7h8i9j0k1l2m3'
-
-}
-
-],
-
-iceTransportPolicy: 'all',
-
-iceCandidatePoolSize: 10
-
-};
-
-
-
-let peerConnection;
-
-let videoStream; // تيار الشاشة (بدون صوت)
-
-let audioStream; // تيار صوت الجهاز فقط
-
-let roomId;
-
-let isHost = false;
-
-let isScreenSharing = false;
-
-let isAudioSharing = false;
-
-
-
-const welcomeScreen = document.getElementById('welcome-screen');
-
-const roomScreen = document.getElementById('room-screen');
-
-const btnHost = document.getElementById('btn-host');
-
-const btnJoin = document.getElementById('btn-join');
-
-const roomCodeInput = document.getElementById('room-code-input');
-
-const displayRoomCode = document.getElementById('display-room-code');
-
-const remoteVideo = document.getElementById('remote-video');
-
-const statusText = document.getElementById('status-text');
-
-const hostControlArea = document.getElementById('host-control-area');
-
-const urlInput = document.getElementById('url-input');
-
-const btnSendUrl = document.getElementById('btn-send-url');
-
-const btnShareScreen = document.getElementById('btn-share-screen');
-
-const btnShareAudio = document.getElementById('btn-share-audio');
-
-const sharedFrame = document.getElementById('shared-frame');
-
-
-
-// تحديث حالة الاتصال
-
-function updateStatus(message, isError = false) {
-
-statusText.innerHTML = message;
-
-statusText.style.color = isError ? '#ff6b6b' : '#cbd5e1';
-
-console.log(`[Status] ${message}`);
-
-}
-
-
-
-// إضافة مسار إلى الاتصال
-
-async function addTrackToConnection(track, stream) {
-
-if (peerConnection && track) {
-
-const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === track.kind);
-
-if (sender) {
-
-await sender.replaceTrack(track);
-
-updateStatus(`✅ تم تحديث مسار ${track.kind === 'audio' ? 'الصوت' : 'الفيديو'}`);
-
-} else {
-
-peerConnection.addTrack(track, stream);
-
-updateStatus(`✅ تم إضافة مسار ${track.kind === 'audio' ? 'الصوت' : 'الفيديو'}`);
-
-}
-
-}
-
-}
-
-
-
-// تنظيف الاتصال
-
-async function cleanupConnection() {
-
-if (videoStream) {
-
-videoStream.getTracks().forEach(track => track.stop());
-
-videoStream = null;
-
-}
-
-if (audioStream) {
-
-audioStream.getTracks().forEach(track => track.stop());
-
-audioStream = null;
-
-}
-
-
-if (peerConnection) {
-
-peerConnection.close();
-
-peerConnection = null;
-
-}
-
-
-isScreenSharing = false;
-
-isAudioSharing = false;
-
-
-if (roomId && !isHost) {
-
-const guestCandidatesRef = ref(db, `rooms/${roomId}/guestCandidates`);
-
-await remove(guestCandidatesRef);
-
-}
-
-}
-
-
-
-// 1. منطق المضيف
-
-btnHost.addEventListener('click', async () => {
-
-try {
-
-await cleanupConnection();
-
-isHost = true;
-
-roomId = Math.floor(1000 + Math.random() * 9000).toString();
-
-displayRoomCode.innerText = roomId;
-
-
-switchScreen(welcomeScreen, roomScreen);
-
-hostControlArea.style.display = "block";
-
-remoteVideo.style.display = "none";
-
-sharedFrame.style.display = "none";
-
-updateStatus("✅ تم فتح الغرفة. شارك الكود مع أصدقائك.");
-
-
-// تنظيف الغرفة عند إغلاق المتصفح
-
-const roomRef = ref(db, `rooms/${roomId}`);
-
-await remove(roomRef);
-
-onDisconnect(roomRef).remove();
-
-
-} catch (error) {
-
-updateStatus(`❌ خطأ: ${error.message}`, true);
-
-}
-
-});
-
-
-
-// زر مشاركة الشاشة (فيديو فقط بدون صوت)
-
-btnShareScreen.addEventListener('click', async () => {
-
-updateStatus("🖥️ جاري مشاركة الشاشة...");
-
-
-try {
-
-// مشاركة الشاشة بدون صوت
-
-videoStream = await navigator.mediaDevices.getDisplayMedia({
-
-video: {
-
-frameRate: { ideal: 30, max: 60 },
-
-width: { ideal: 1920, max: 1920 },
-
-height: { ideal: 1080, max: 1080 }
-
-},
-
-audio: false // بدون صوت
-
-});
-
-
-isScreenSharing = true;
-
-updateStatus("✅ تم مشاركة الشاشة بنجاح! جاري إنشاء الاتصال...");
-
-
-if (!peerConnection) {
-
-await setupWebrtcAsHost();
-
-}
-
-
-// إضافة مسار الفيديو
-
-const videoTrack = videoStream.getVideoTracks()[0];
-
-await addTrackToConnection(videoTrack, videoStream);
-
-
-updateStatus("🎬 بث الشاشة يعمل الآن! يمكنك الآن إضافة صوت الجهاز.");
-
-
-// مراقبة انتهاء مشاركة الشاشة
-
-videoTrack.onended = () => {
-
-updateStatus("⚠️ توقفت مشاركة الشاشة", true);
-
-isScreenSharing = false;
-
-btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
-
-};
-
-
-btnShareScreen.textContent = "✅ الشاشة قيد البث";
-
-
-} catch (error) {
-
-updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, true);
-
-}
-
-});
-
-
-
-// زر بث صوت الجهاز (مستقل)
-
-btnShareAudio.addEventListener('click', async () => {
-
-if (isAudioSharing) {
-
-// إيقاف الصوت
-
-if (audioStream) {
-
-audioStream.getTracks().forEach(track => track.stop());
-
-audioStream = null;
-
-}
-
-isAudioSharing = false;
-
-btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
-
-updateStatus("🔇 تم إيقاف بث صوت الجهاز");
-
-
-// إزالة مسار الصوت من الاتصال
-
-if (peerConnection) {
-
-const audioSenders = peerConnection.getSenders().filter(s => s.track && s.track.kind === 'audio');
-
-audioSenders.forEach(sender => {
-
-peerConnection.removeTrack(sender);
-
-});
-
-}
-
-} else {
-
-updateStatus("🎵 جاري تشغيل صوت الجهاز...");
-
-
-try {
-
-// طلب مشاركة صوت الجهاز فقط (بدون شاشة)
-
-// نستخدم getDisplayMedia مع شاشة صغيرة جداً للحصول على الصوت فقط
-
-const tempStream = await navigator.mediaDevices.getDisplayMedia({
-
-video: {
-
-width: { ideal: 1, max: 1 },
-
-height: { ideal: 1, max: 1 },
-
-frameRate: 1
-
-},
-
-audio: true // هذا يقوم ببث صوت الجهاز
-
-});
-
-
-// استخراج مسار الصوت فقط
-
-const audioTrack = tempStream.getAudioTracks()[0];
-
-
-if (audioTrack) {
-
-// إنشاء تيار جديد للصوت فقط
-
-audioStream = new MediaStream();
-
-audioStream.addTrack(audioTrack);
-
-
-isAudioSharing = true;
-
-
-if (!peerConnection) {
-
-await setupWebrtcAsHost();
-
-}
-
-
-// إضافة مسار الصوت
-
-await addTrackToConnection(audioTrack, audioStream);
-
-
-updateStatus("🎵 تم تشغيل صوت الجهاز! الضيوف الآن يسمعون صوت جهازك.");
-
-btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
-
-
-// مراقبة انتهاء الصوت
-
-audioTrack.onended = () => {
-
-updateStatus("⚠️ توقف بث صوت الجهاز", true);
-
-isAudioSharing = false;
-
-btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
-
-};
-
-
-// إيقاف تيار الفيديو المؤقت
-
-tempStream.getVideoTracks().forEach(track => track.stop());
-
-
-} else {
-
-updateStatus("❌ لم يتم العثور على مسار صوت", true);
-
-tempStream.getTracks().forEach(track => track.stop());
-
-}
-
-
-} catch (error) {
-
-updateStatus(`❌ فشل تشغيل صوت الجهاز: ${error.message}. تأكد من اختيار "مشاركة الصوت" في النافذة المنبثقة.`, true);
-
-}
-
-}
-
-});
-
-
-
-// رابط الموقع
-
-btnSendUrl.addEventListener('click', async () => {
-
-let url = urlInput.value.trim();
-
-if (!url) {
-
-updateStatus("⚠️ الرجاء إدخال الرابط أولاً", true);
-
-return;
-
-}
-
-
-if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-
-
-sharedFrame.src = url;
-
-sharedFrame.style.display = "block";
-
-updateStatus("📺 تم تحميل الموقع. يمكنك الآن مشاركة الشاشة والصوت.");
-
-});
-
-
-
-async function setupWebrtcAsHost() {
-
-peerConnection = new RTCPeerConnection(iceServers);
-
-
-peerConnection.onconnectionstatechange = () => {
-
-if (peerConnection.connectionState === 'connected') {
-
-updateStatus("✅ البث متصل بنجاح!");
-
-} else if (peerConnection.connectionState === 'failed') {
-
-updateStatus("❌ فشل الاتصال", true);
-
-}
-
-};
-
-
-peerConnection.onicecandidate = (event) => {
-
-if (event.candidate) {
-
-const candidateRef = ref(db, `rooms/${roomId}/hostCandidates/${Date.now()}`);
-
-set(candidateRef, event.candidate.toJSON());
-
-}
-
-};
-
-
-peerConnection.onnegotiationneeded = async () => {
-
-try {
-
-const offer = await peerConnection.createOffer();
-
-await peerConnection.setLocalDescription(offer);
-
-await update(ref(db, `rooms/${roomId}`), {
-
-offer: { type: offer.type, sdp: offer.sdp }
-
-});
-
-} catch (error) {
-
-console.error("Negotiation error:", error);
-
-}
-
-};
-
-
-// الاستماع لإجابات الضيف
-
-onValue(ref(db, `rooms/${roomId}/answer`), (snapshot) => {
-
-const answer = snapshot.val();
-
-if (answer && peerConnection && peerConnection.signalingState === 'have-local-offer') {
-
-peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
-
-.then(() => updateStatus("✅ تم استلام رد الضيف"))
-
-.catch(console.error);
-
-}
-
-});
-
-
-// الاستماع لمرشحات الضيف
-
-onChildAdded(ref(db, `rooms/${roomId}/guestCandidates`), (snapshot) => {
-
-if (snapshot.exists() && peerConnection) {
-
-peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-
-.catch(console.error);
-
-}
-
-});
-
-}
-
-
-
-// 2. منطق الضيف
-
-btnJoin.addEventListener('click', async () => {
-
-try {
-
-await cleanupConnection();
-
-isHost = false;
-
-roomId = roomCodeInput.value.trim();
-
-
-if (!roomId || roomId.length !== 4) {
-
-updateStatus("⚠️ كود الغرفة يجب أن يكون 4 أرقام", true);
-
-return;
-
-}
-
-
-updateStatus("🔍 جاري البحث عن الغرفة...");
-
-
-const roomSnapshot = await new Promise((resolve) => {
-
-onValue(ref(db, `rooms/${roomId}`), resolve, { onlyOnce: true });
-
-});
-
-
-if (!roomSnapshot.exists()) {
-
-updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", true);
-
-return;
-
-}
-
-
-switchScreen(welcomeScreen, roomScreen);
-
-displayRoomCode.innerText = roomId;
-
-sharedFrame.style.display = "none";
-
-remoteVideo.style.display = "block";
-
-document.getElementById('host-control-area').style.display = "none";
-
-
-updateStatus("📡 جاري الاتصال بالبث...");
-
-await setupWebrtcAsGuest();
-
-
-} catch (error) {
-
-updateStatus(`❌ خطأ: ${error.message}`, true);
-
-}
-
-});
-
-
-
-async function setupWebrtcAsGuest() {
-
-peerConnection = new RTCPeerConnection(iceServers);
-
-
-peerConnection.ontrack = (event) => {
-
-if (event.streams && event.streams[0]) {
-
-if (remoteVideo.srcObject) {
-
-// دمج المسارات الجديدة مع الموجودة
-
-const existingStream = remoteVideo.srcObject;
-
-event.streams[0].getTracks().forEach(track => {
-
-existingStream.addTrack(track);
-
-});
-
-} else {
-
-remoteVideo.srcObject = event.streams[0];
-
-}
-
-
-remoteVideo.play().then(() => {
-
-const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
-
-updateStatus(`🎬 تم الاتصال!${hasAudio ? ' يتم سماع صوت الجهاز.' : ''}`);
-
-}).catch(() => {
-
-updateStatus("⚠️ انقر على الفيديو لبدء التشغيل", true);
-
-});
-
-}
-
-};
-
-
-peerConnection.onconnectionstatechange = () => {
-
-if (peerConnection.connectionState === 'connected') {
-
-updateStatus("✅ تم الاتصال بالبث بنجاح!");
-
-} else if (peerConnection.connectionState === 'failed') {
-
-updateStatus("❌ فشل الاتصال", true);
-
-}
-
-};
-
-
-peerConnection.onicecandidate = (event) => {
-
-if (event.candidate) {
-
-const candidateRef = ref(db, `rooms/${roomId}/guestCandidates/${Date.now()}`);
-
-set(candidateRef, event.candidate.toJSON());
-
-}
-
-};
-
-
-// الاستماع لعرض المضيف
-
-onValue(ref(db, `rooms/${roomId}/offer`), async (snapshot) => {
-
-const offer = snapshot.val();
-
-if (offer && peerConnection && peerConnection.signalingState === 'stable') {
-
-try {
-
-await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-
-const answer = await peerConnection.createAnswer();
-
-await peerConnection.setLocalDescription(answer);
-
-await update(ref(db, `rooms/${roomId}`), {
-
-answer: { type: answer.type, sdp: answer.sdp }
-
-});
-
-updateStatus("✅ تم إرسال الرد إلى المضيف");
-
-} catch (error) {
-
-console.error("Error:", error);
-
-}
-
-}
-
-});
-
-
-// الاستماع لمرشحات المضيف
-
-onChildAdded(ref(db, `rooms/${roomId}/hostCandidates`), (snapshot) => {
-
-if (snapshot.exists() && peerConnection) {
-
-peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val()))
-
-.catch(console.error);
-
-}
-
-});
-
-
-const offerSnapshot = await new Promise((resolve) => {
-
-onValue(ref(db, `rooms/${roomId}/offer`), resolve, { onlyOnce: true });
-
-});
-
-
-if (offerSnapshot.exists() && peerConnection.signalingState === 'stable') {
-
-const offer = offerSnapshot.val();
-
-await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-
-const answer = await peerConnection.createAnswer();
-
-await peerConnection.setLocalDescription(answer);
-
-await update(ref(db, `rooms/${roomId}`), {
-
-answer: { type: answer.type, sdp: answer.sdp }
-
-});
-
-}
-
-}
-
-
-
-function switchScreen(hide, show) {
-
-hide.classList.remove('active');
-
-show.classList.add('active');
-
-}
-
-
-document.body.addEventListener('click', () => {
-
-if (remoteVideo.srcObject && remoteVideo.paused) {
-
-remoteVideo.play().catch(() => {});
-
-}
-
-});
-
-
-console.log("✅ التطبيق جاهز - بث منفصل للشاشة والصوت");
-
-</script>
-
-
-
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>سينما لايف - بث احترافي | يدعم بيانات الجوال</title>
 <style>
-
-:root {
-
---bg-gradient: linear-gradient(135deg, #060913, #131a35, #060913);
-
---glass-bg: rgba(255, 255, 255, 0.03);
-
---glass-border: rgba(255, 255, 255, 0.08);
-
---accent-color: #00f2fe;
-
---text-color: #ffffff;
-
-}
-
-* { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, sans-serif; }
-
-body { background: var(--bg-gradient); min-height: 100vh; display: flex; justify-content: center; align-items: center; color: var(--text-color); padding: 15px; }
-
-.container { width: 100%; max-width: 900px; background: var(--glass-bg); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); border-radius: 24px; padding: 25px; text-align: center; }
-
-h1 { font-size: 1.5rem; margin-bottom: 20px; }
-
-.screen { display: none; }
-
-.screen.active { display: block; }
-
-.btn { background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%); border: none; color: white; padding: 12px 20px; font-size: 0.9rem; font-weight: bold; border-radius: 12px; cursor: pointer; margin-top: 10px; transition: transform 0.2s, opacity 0.2s; }
-
-.btn:hover { transform: translateY(-2px); opacity: 0.9; }
-
-.btn-secondary { background: rgba(255, 255, 255, 0.06); border: 1px solid var(--glass-border); }
-
-.btn-success { background: linear-gradient(90deg, #11998e, #38ef7d); }
-
-.btn-warning { background: linear-gradient(90deg, #f093fb, #f5576c); }
-
-.divider { margin: 20px 0; color: #7f8c8d; font-size: 0.85rem; display: flex; align-items: center; gap: 10px; }
-
-.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: rgba(255,255,255,0.1); }
-
-input { width: 100%; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); padding: 14px; border-radius: 12px; color: white; font-size: 1rem; text-align: center; outline: none; transition: border-color 0.2s; }
-
-input:focus { border-color: var(--accent-color); }
-
-.status { font-size: 0.85rem; color: #cbd5e1; margin: 15px 0; padding: 10px; border-radius: 8px; background: rgba(0,0,0,0.2); line-height: 1.4; }
-
-.control-box { background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 16px; margin-bottom: 15px; border: 1px solid rgba(0, 242, 254, 0.2); }
-
-.buttons-group { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-
-.buttons-group .btn { flex: 1; margin-top: 0; }
-
-#view-container { width: 100%; margin-top: 20px; border-radius: 16px; overflow: hidden; background: #000000; aspect-ratio: 16/9; border: 1px solid var(--glass-border); position: relative; }
-
-iframe { width: 100%; height: 100%; border: none; background: #ffffff; display: none; }
-
-video { width: 100%; height: 100%; object-fit: contain; background: #000000; }
-
-@media (max-width: 600px) {
-
-.container { padding: 15px; }
-
-h1 { font-size: 1.2rem; }
-
-.btn { padding: 10px 16px; font-size: 0.8rem; }
-
-.buttons-group { flex-direction: column; }
-
-}
-
-.info-text { font-size: 0.8rem; color: #888; margin-top: 10px; }
-
+    * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+    body {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh; display: flex; justify-content: center; align-items: center;
+        padding: 16px;
+    }
+    .container {
+        background: rgba(255, 255, 255, 0.95); border-radius: 28px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3); width: 100%; max-width: 1000px;
+        overflow: hidden; backdrop-filter: blur(10px);
+    }
+    .screen { display: none; padding: 24px; animation: fadeIn 0.5s ease; }
+    .screen.active { display: block; }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    h1 {
+        font-size: 28px; margin-bottom: 24px; text-align: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    .btn {
+        width: 100%; padding: 14px; margin: 10px 0; border: none;
+        border-radius: 14px; font-size: 16px; font-weight: bold; cursor: pointer;
+        transition: all 0.3s ease;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-secondary { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    input {
+        width: 100%; padding: 14px; margin: 10px 0; border: 2px solid #e0e0e0;
+        border-radius: 14px; font-size: 18px; text-align: center;
+        font-weight: bold; letter-spacing: 4px; transition: border-color 0.3s;
+    }
+    input:focus { outline: none; border-color: #667eea; }
+    .status {
+        background: #f0f0f0; padding: 12px; border-radius: 12px;
+        margin: 16px 0; text-align: center; font-size: 14px; color: #333;
+        border-right: 4px solid #667eea;
+    }
+    .status.error { background: #fee; border-right-color: #f5576c; color: #c00; }
+    .status.success { background: #e8f5e9; border-right-color: #4caf50; color: #2e7d32; }
+    .status.warning { background: #fff3e0; border-right-color: #ff9800; color: #e65100; }
+    .control-box {
+        background: #f8f9fa; padding: 20px; border-radius: 20px; margin: 20px 0;
+    }
+    .buttons-group {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 15px;
+    }
+    .btn-small { padding: 12px; font-size: 14px; }
+    .viewer-container {
+        position: relative; background: #000; border-radius: 20px;
+        overflow: hidden; aspect-ratio: 16/9; margin-top: 20px;
+    }
+    video, iframe { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    .network-badge {
+        position: fixed; bottom: 20px; right: 20px;
+        background: rgba(0,0,0,0.7); color: white; padding: 6px 12px;
+        border-radius: 20px; font-size: 12px; font-family: monospace; z-index: 1000;
+    }
+    .guest-count {
+        background: #667eea; color: white; padding: 8px 16px;
+        border-radius: 20px; font-size: 14px; display: inline-block; margin-bottom: 15px;
+    }
+    .data-warning {
+        background: #ffebee; border: 2px solid #ef5350; color: #c62828;
+        padding: 12px; border-radius: 12px; margin-bottom: 15px;
+        font-size: 13px; text-align: center; display: none;
+    }
+    .data-warning.visible { display: block; }
+    .quality-badge {
+        position: absolute; top: 10px; left: 10px;
+        background: rgba(0,0,0,0.7); color: #4caf50;
+        padding: 4px 10px; border-radius: 10px; font-size: 12px; z-index: 10;
+    }
+    @media (max-width: 768px) {
+        .screen { padding: 16px; }
+        h1 { font-size: 24px; }
+        .buttons-group { grid-template-columns: 1fr; }
+    }
+    .loader {
+        display: inline-block; width: 20px; height: 20px;
+        border: 3px solid #f3f3f3; border-top: 3px solid #667eea;
+        border-radius: 50%; animation: spin 1s linear infinite;
+        margin-right: 10px; vertical-align: middle;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .warning-banner {
+        background: #ff9800; color: white; padding: 10px;
+        border-radius: 12px; margin-bottom: 15px; font-size: 13px; text-align: center;
+    }
+    .stats-panel {
+        background: #1a1a2e; color: #00ff88; padding: 10px;
+        border-radius: 10px; font-size: 11px; font-family: monospace;
+        margin-top: 10px; display: none;
+    }
+    .stats-panel.visible { display: block; }
 </style>
-
 </head>
-
 <body>
 
-
-
 <div class="container">
+    <!-- شاشة الترحيب -->
+    <div id="welcome-screen" class="screen active">
+        <h1>🎬 سينما لايف برو</h1>
+        <div class="warning-banner">
+            📱 ننصح باستخدام الواي فاي للمشاهدة بجودة عالية<br>
+            بيانات الجوال مدعومة مع تقليل الجودة تلقائياً
+        </div>
+        <div id="data-warning-welcome" class="data-warning">
+            ⚠️ أنت تستخدم بيانات الجوال! سيتم تقليل جودة الفيديو تلقائياً لتوفير البيانات.
+        </div>
+        <button id="btn-host" class="btn">🚀 إنشاء غرفة بث (مضيف)</button>
+        <div style="text-align: center; margin: 15px 0; color: #999;">أو</div>
+        <input type="text" id="room-code-input" placeholder="📱 أدخل كود الغرفة (4 أرقام)" maxlength="4" inputmode="numeric">
+        <button id="btn-join" class="btn btn-secondary">👥 انضم كمشاهد</button>
+    </div>
 
-<div id="welcome-screen" class="screen active">
-
-<h1>🎬 سينما لايف - بث منفصل للشاشة والصوت</h1>
-
-<button id="btn-host" class="btn">🚀 فتح غرفة بث جديدة (المضيف)</button>
-
-<div class="divider">أو انضم إلى صديقك للمشاهدة</div>
-
-<input type="number" id="room-code-input" placeholder="📱 أدخل كود الغرفة (4 أرقام)">
-
-<button id="btn-join" class="btn btn-secondary">👥 دخول لمشاهدة البث</button>
-
+    <!-- شاشة الغرفة -->
+    <div id="room-screen" class="screen">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+            <h1 style="margin: 0; font-size: 20px;">🏠 غرفة: <span id="display-room-code">----</span></h1>
+            <div id="guest-count-badge" class="guest-count">👥 0 ضيوف</div>
+        </div>
+        
+        <div id="data-warning-room" class="data-warning">
+            ⚠️ بيانات الجوال نشطة - الجودة مُقلّلة لتوفير البيانات
+        </div>
+        
+        <div id="status-text" class="status">⚙️ جاري التهيئة...</div>
+        
+        <!-- منطقة تحكم المضيف -->
+        <div id="host-control-area" style="display: none;">
+            <div class="control-box">
+                <input type="text" id="url-input" placeholder="🔗 رابط الفيديو أو الموقع (اختياري)" dir="ltr">
+                <button id="btn-send-url" class="btn" style="margin-top: 10px;">📺 تحميل المحتوى</button>
+                
+                <div class="buttons-group">
+                    <button id="btn-share-screen" class="btn btn-small">🖥️ مشاركة الشاشة</button>
+                    <button id="btn-share-audio" class="btn btn-small">🎵 بث صوت الجهاز</button>
+                </div>
+                
+                <div style="font-size: 12px; color: #666; margin-top: 12px; text-align: center;">
+                    💡 نصيحة: شارك الشاشة أولاً، ثم شغّل الصوت. البث يدعم حتى 10 مشاهدين على بيانات الجوال!
+                </div>
+            </div>
+        </div>
+        
+        <!-- منطقة عرض الفيديو -->
+        <div class="viewer-container">
+            <div id="quality-badge" class="quality-badge" style="display: none;">📊 الجودة: جيدة</div>
+            <iframe id="shared-frame" style="display: none;" allow="autoplay; fullscreen"></iframe>
+            <video id="remote-video" autoplay playsinline controls style="display: none;" muted></video>
+        </div>
+        
+        <div id="stats-panel" class="stats-panel"></div>
+    </div>
 </div>
 
+<div id="network-badge" class="network-badge">📡 جاري التحقق...</div>
 
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js";
+    import { getDatabase, ref, set, onValue, update, onChildAdded, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js";
 
-<div id="room-screen" class="screen">
+    const firebaseConfig = {
+        apiKey: "AIzaSyCTKYD680Jdbl0azC9RTtuKZBaLX2uU_Ck",
+        authDomain: "my-online-store-34f34.firebaseapp.com",
+        databaseURL: "https://my-online-store-34f34-default-rtdb.europe-west1.firebasedatabase.app",
+        projectId: "my-online-store-34f34",
+        storageBucket: "my-online-store-34f34.firebasestorage.app",
+        messagingSenderId: "288655549705",
+        appId: "1:288655549705:web:06901ce4ac1a50eebe1fd8"
+    };
 
-<h1>🏠 رقم الغرفة: <span id="display-room-code" style="color:var(--accent-color); letter-spacing: 2px;">----</span></h1>
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
 
-<div id="status-text" class="status">⚙️ جاري تهيئة قنوات المزامنة...</div>
+    // ==================== ⚡ خوادم ICE محسّنة لبيانات الجوال ====================
+    const getIceServers = () => {
+        return {
+            iceServers: [
+                // STUN أساسي
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' },
+                
+                // TURN UDP (أفضل جودة)
+                {
+                    urls: 'turn:turn.relay.metered.ca:80?transport=udp',
+                    username: 'b12f3d7f4a5c3e8d9f0a1b2c',
+                    credential: 'd4e5f6g7h8i9j0k1l2m3'
+                },
+                {
+                    urls: 'turn:turn.relay.metered.ca:3478?transport=udp',
+                    username: 'b12f3d7f4a5c3e8d9f0a1b2c',
+                    credential: 'd4e5f6g7h8i9j0k1l2m3'
+                },
+                // TURN TCP (للشبكات المقيدة)
+                {
+                    urls: 'turn:turn.relay.metered.ca:80?transport=tcp',
+                    username: 'b12f3d7f4a5c3e8d9f0a1b2c',
+                    credential: 'd4e5f6g7h8i9j0k1l2m3'
+                },
+                // TURN TLS (الملجأ الأخير - يشبه HTTPS)
+                {
+                    urls: 'turns:turn.relay.metered.ca:443?transport=tcp',
+                    username: 'b12f3d7f4a5c3e8d9f0a1b2c',
+                    credential: 'd4e5f6g7h8i9j0k1l2m3'
+                },
+                // خادم احتياطي OpenRelay
+                {
+                    urls: 'turn:openrelay.metered.ca:80',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                },
+                {
+                    urls: 'turn:openrelay.metered.ca:443',
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceTransportPolicy: 'all',
+            iceCandidatePoolSize: 10,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
+        };
+    };
 
+    // ==================== 📊 إعدادات الجودة حسب نوع الشبكة ====================
+    const getQualitySettings = (networkType) => {
+        const settings = {
+            wifi: {
+                videoBitrate: 2500000,    // 2.5 Mbps
+                audioBitrate: 128000,
+                width: 1280, height: 720,
+                frameRate: 30,
+                label: 'عالية (WiFi)'
+            },
+            '4g': {
+                videoBitrate: 800000,     // 800 kbps
+                audioBitrate: 64000,
+                width: 854, height: 480,
+                frameRate: 24,
+                label: 'متوسطة (4G)'
+            },
+            '3g': {
+                videoBitrate: 400000,     // 400 kbps
+                audioBitrate: 32000,
+                width: 640, height: 360,
+                frameRate: 15,
+                label: 'منخفضة (3G)'
+            },
+            '2g': {
+                videoBitrate: 150000,     // 150 kbps
+                audioBitrate: 16000,
+                width: 480, height: 270,
+                frameRate: 10,
+                label: 'ضعيفة جداً (2G)'
+            },
+            unknown: {
+                videoBitrate: 500000,
+                audioBitrate: 48000,
+                width: 640, height: 360,
+                frameRate: 20,
+                label: 'تلقائية'
+            }
+        };
+        return settings[networkType] || settings.unknown;
+    };
 
+    const MAX_GUESTS = 10;
+    let peerConnection = null;
+    let hostPeerConnections = {};
+    let videoStream = null;
+    let audioStream = null;
+    let roomId = null;
+    let isHost = false;
+    let myGuestId = null;
+    let reconnectAttempts = 0;
+    let connectionMonitor = null;
+    let networkType = 'unknown';
+    let qualitySettings = getQualitySettings('unknown');
+    let isUsingMobileData = false;
 
-<div id="host-control-area" class="control-box">
+    // عناصر DOM
+    const welcomeScreen = document.getElementById('welcome-screen');
+    const roomScreen = document.getElementById('room-screen');
+    const btnHost = document.getElementById('btn-host');
+    const btnJoin = document.getElementById('btn-join');
+    const roomCodeInput = document.getElementById('room-code-input');
+    const displayRoomCode = document.getElementById('display-room-code');
+    const remoteVideo = document.getElementById('remote-video');
+    const statusText = document.getElementById('status-text');
+    const hostControlArea = document.getElementById('host-control-area');
+    const urlInput = document.getElementById('url-input');
+    const btnSendUrl = document.getElementById('btn-send-url');
+    const btnShareScreen = document.getElementById('btn-share-screen');
+    const btnShareAudio = document.getElementById('btn-share-audio');
+    const sharedFrame = document.getElementById('shared-frame');
+    const guestCountBadge = document.getElementById('guest-count-badge');
+    const networkBadge = document.getElementById('network-badge');
+    const dataWarningWelcome = document.getElementById('data-warning-welcome');
+    const dataWarningRoom = document.getElementById('data-warning-room');
+    const qualityBadge = document.getElementById('quality-badge');
+    const statsPanel = document.getElementById('stats-panel');
 
-<input type="text" id="url-input" placeholder="🔗 ألصق رابط الموقع هنا (اختياري)" style="direction: ltr;">
+    // ==================== 📡 كشف نوع الشبكة ====================
+    async function checkNetworkType() {
+        const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        
+        if (connection) {
+            const type = connection.effectiveType || 'unknown';
+            networkType = type;
+            
+            // كشف بيانات الجوال
+            if (connection.type === 'cellular' || 
+                ['2g', '3g', '4g'].includes(type) ||
+                !navigator.onLine) {
+                isUsingMobileData = true;
+                dataWarningWelcome.classList.add('visible');
+                dataWarningRoom.classList.add('visible');
+            } else {
+                isUsingMobileData = false;
+                dataWarningWelcome.classList.remove('visible');
+                dataWarningRoom.classList.remove('visible');
+            }
+            
+            qualitySettings = getQualitySettings(type);
+            networkBadge.innerHTML = `📡 ${type.toUpperCase()} ${isUsingMobileData ? '(جوال)' : '(WiFi)'}`;
+            
+            // تحديث شارة الجودة
+            if (qualityBadge.style.display !== 'none') {
+                qualityBadge.innerHTML = `📊 الجودة: ${qualitySettings.label}`;
+            }
+            
+            return type;
+        }
+        networkBadge.innerHTML = `📡 غير معروف`;
+        return 'unknown';
+    }
 
-<button id="btn-send-url" class="btn btn-secondary" style="margin-top: 10px;">📖 تحميل الموقع</button>
+    function updateStatus(message, type = 'info') {
+        statusText.innerHTML = message;
+        statusText.className = `status ${type}`;
+        console.log(`[${type.toUpperCase()}] ${message}`);
+        
+        if (type === 'error' && !isHost) {
+            autoReconnect();
+        }
+    }
 
+    function updateGuestCount(count) {
+        guestCountBadge.innerHTML = `👥 ${count} ${count === 1 ? 'ضيف' : 'ضيوف'}`;
+    }
 
-<div class="buttons-group">
+    // ==================== 🔄 إعادة الاتصال التلقائية ====================
+    function autoReconnect() {
+        if (reconnectAttempts < 5) {
+            reconnectAttempts++;
+            const delay = Math.min(reconnectAttempts * 2000, 10000); // تأخير متزايد: 2s, 4s, 6s, 8s, 10s
+            updateStatus(`🔄 محاولة إعادة الاتصال (${reconnectAttempts}/5) بعد ${delay/1000} ثوانٍ...`, 'warning');
+            
+            setTimeout(() => {
+                if (!isHost && roomId) {
+                    setupWebrtcAsGuest();
+                }
+            }, delay);
+        } else {
+            updateStatus('❌ فشل الاتصال نهائياً. تأكد من اتصال الإنترنت.', 'error');
+        }
+    }
 
-<button id="btn-share-screen" class="btn btn-success">🖥️ مشاركة الشاشة</button>
+    // ==================== 🧹 تنظيف الموارد ====================
+    async function cleanupConnection() {
+        if (videoStream) {
+            videoStream.getTracks().forEach(track => track.stop());
+            videoStream = null;
+        }
+        if (audioStream) {
+            audioStream.getTracks().forEach(track => track.stop());
+            audioStream = null;
+        }
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+        for (let guestId in hostPeerConnections) {
+            hostPeerConnections[guestId].close();
+            delete hostPeerConnections[guestId];
+        }
+        if (connectionMonitor) {
+            clearInterval(connectionMonitor);
+            connectionMonitor = null;
+        }
+        reconnectAttempts = 0;
+    }
 
-<button id="btn-share-audio" class="btn btn-warning">🎵 تشغيل صوت الجهاز</button>
+    // ==================== 📐 تطبيق إعدادات الجودة ====================
+    async function applyQualityConstraints(stream) {
+        const videoTrack = stream.getVideoTracks()[0];
+        if (!videoTrack) return;
+        
+        const constraints = {
+            width: { ideal: qualitySettings.width },
+            height: { ideal: qualitySettings.height },
+            frameRate: { ideal: qualitySettings.frameRate }
+        };
+        
+        try {
+            await videoTrack.applyConstraints(constraints);
+        } catch (e) {
+            console.log('تعذر تطبيق القيود:', e);
+        }
+    }
 
-</div>
+    // ==================== 🎯 تعديل معدل البت (Bitrate) ====================
+    async function setBitrateLimit(pc, kind, maxBitrate) {
+        const sender = pc.getSenders().find(s => s.track?.kind === kind);
+        if (!sender) return;
+        
+        const params = sender.getParameters();
+        if (!params.encodings) params.encodings = [{}];
+        params.encodings.forEach(enc => {
+            enc.maxBitrate = maxBitrate;
+        });
+        
+        try {
+            await sender.setParameters(params);
+        } catch (e) {
+            console.log('تعذر تعيين معدل البت:', e);
+        }
+    }
 
-<div class="info-text">
+    // ==================== ➕ إضافة مسار لجميع الضيوف ====================
+    async function addTrackToAllConnections(track, stream) {
+        for (let guestId in hostPeerConnections) {
+            const pc = hostPeerConnections[guestId];
+            const sender = pc.getSenders().find(s => s.track?.kind === track.kind);
+            if (sender) {
+                await sender.replaceTrack(track);
+            } else {
+                pc.addTrack(track, stream);
+            }
+            
+            // تطبيق قيود معدل البت
+            if (track.kind === 'video') {
+                await setBitrateLimit(pc, 'video', qualitySettings.videoBitrate);
+            } else if (track.kind === 'audio') {
+                await setBitrateLimit(pc, 'audio', qualitySettings.audioBitrate);
+            }
+        }
+    }
 
-💡 نصيحة: شارك الشاشة أولاً، ثم اضغط "تشغيل صوت الجهاز" لنقل الصوت للضيوف
+    // ==================== 🏠 وظائف المضيف ====================
+    btnHost.addEventListener('click', async () => {
+        try {
+            await cleanupConnection();
+            isHost = true;
+            roomId = Math.floor(1000 + Math.random() * 9000).toString();
+            displayRoomCode.innerText = roomId;
+            
+            switchScreen(welcomeScreen, roomScreen);
+            hostControlArea.style.display = "block";
+            remoteVideo.style.display = "none";
+            qualityBadge.style.display = "none";
+            
+            updateStatus(`✅ تم إنشاء الغرفة رقم ${roomId}. شارك الكود مع أصدقائك!`, 'success');
+            
+            const roomRef = ref(db, `rooms/${roomId}`);
+            await remove(roomRef);
+            await set(ref(db, `rooms/${roomId}/createdAt`), Date.now());
+            await set(ref(db, `rooms/${roomId}/host`), "active");
+            onDisconnect(roomRef).remove();
+            
+            onValue(ref(db, `rooms/${roomId}/guests`), (snapshot) => {
+                const guests = snapshot.val() || {};
+                const count = Object.keys(guests).length;
+                updateGuestCount(count);
+            });
+            
+            onChildAdded(ref(db, `rooms/${roomId}/guests`), (snapshot) => {
+                const guestId = snapshot.key;
+                if (!hostPeerConnections[guestId]) {
+                    setupWebrtcForGuest(guestId);
+                }
+            });
+            
+        } catch (error) {
+            updateStatus(`❌ خطأ: ${error.message}`, 'error');
+        }
+    });
 
-</div>
+    async function setupWebrtcForGuest(guestId) {
+        const pc = new RTCPeerConnection(getIceServers());
+        hostPeerConnections[guestId] = pc;
+        
+        if (videoStream) {
+            const videoTrack = videoStream.getVideoTracks()[0];
+            if (videoTrack) {
+                pc.addTrack(videoTrack, videoStream);
+                await setBitrateLimit(pc, 'video', qualitySettings.videoBitrate);
+            }
+        }
+        if (audioStream) {
+            const audioTrack = audioStream.getAudioTracks()[0];
+            if (audioTrack) {
+                pc.addTrack(audioTrack, audioStream);
+                await setBitrateLimit(pc, 'audio', qualitySettings.audioBitrate);
+            }
+        }
+        
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                const candidateRef = ref(db, `rooms/${roomId}/guests/${guestId}/hostCandidates/${Date.now()}`);
+                set(candidateRef, event.candidate.toJSON());
+            }
+        };
+        
+        pc.onnegotiationneeded = async () => {
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                await update(ref(db, `rooms/${roomId}/guests/${guestId}`), {
+                    offer: { type: offer.type, sdp: offer.sdp }
+                });
+            } catch (error) {
+                console.error("خطأ في المفاوضة:", error);
+            }
+        };
+        
+        onValue(ref(db, `rooms/${roomId}/guests/${guestId}/answer`), (snapshot) => {
+            const answer = snapshot.val();
+            if (answer && pc.signalingState === 'have-local-offer') {
+                pc.setRemoteDescription(new RTCSessionDescription(answer)).catch(console.error);
+            }
+        });
+        
+        onChildAdded(ref(db, `rooms/${roomId}/guests/${guestId}/guestCandidates`), (snapshot) => {
+            if (snapshot.exists() && pc.remoteDescription) {
+                pc.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(console.error);
+            }
+        });
+        
+        if ((videoStream && videoStream.getVideoTracks().length) || (audioStream && audioStream.getAudioTracks().length)) {
+            setTimeout(() => pc.dispatchEvent(new Event('negotiationneeded')), 100);
+        }
+    }
 
-</div>
+    // ==================== 🖥️ مشاركة الشاشة (محسّنة) ====================
+    btnShareScreen.addEventListener('click', async () => {
+        try {
+            updateStatus("🖥️ جاري مشاركة الشاشة...", 'info');
+            
+            const constraints = {
+                video: {
+                    frameRate: { ideal: qualitySettings.frameRate },
+                    width: { ideal: qualitySettings.width },
+                    height: { ideal: qualitySettings.height }
+                },
+                audio: false
+            };
+            
+            videoStream = await navigator.mediaDevices.getDisplayMedia(constraints);
+            await applyQualityConstraints(videoStream);
+            
+            const videoTrack = videoStream.getVideoTracks()[0];
+            await addTrackToAllConnections(videoTrack, videoStream);
+            
+            updateStatus(`✅ جاري بث الشاشة! الجودة: ${qualitySettings.label}`, 'success');
+            btnShareScreen.textContent = "✅ الشاشة قيد البث";
+            qualityBadge.style.display = 'block';
+            qualityBadge.innerHTML = `📊 الجودة: ${qualitySettings.label}`;
+            
+            videoTrack.onended = () => {
+                updateStatus("⚠️ توقفت مشاركة الشاشة", 'warning');
+                btnShareScreen.textContent = "🖥️ مشاركة الشاشة";
+                qualityBadge.style.display = 'none';
+            };
+        } catch (error) {
+            updateStatus(`❌ فشل مشاركة الشاشة: ${error.message}`, 'error');
+        }
+    });
+    
+    // ==================== 🎵 بث الصوت (محسّن) ====================
+    btnShareAudio.addEventListener('click', async () => {
+        if (audioStream) {
+            audioStream.getTracks().forEach(t => t.stop());
+            audioStream = null;
+            updateStatus("🔇 تم إيقاف بث الصوت", 'info');
+            btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
+        } else {
+            try {
+                updateStatus("🎵 جاري تشغيل صوت الجهاز...", 'info');
+                const tempStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { width: 1, height: 1 },
+                    audio: true
+                });
+                
+                const audioTrack = tempStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    audioStream = new MediaStream([audioTrack]);
+                    await addTrackToAllConnections(audioTrack, audioStream);
+                    updateStatus("✅ يتم بث صوت الجهاز!", 'success');
+                    btnShareAudio.textContent = "🔇 إيقاف صوت الجهاز";
+                    
+                    audioTrack.onended = () => {
+                        audioStream = null;
+                        btnShareAudio.textContent = "🎵 تشغيل صوت الجهاز";
+                    };
+                }
+                tempStream.getVideoTracks().forEach(t => t.stop());
+            } catch (error) {
+                updateStatus(`❌ فشل تشغيل الصوت: ${error.message}`, 'error');
+            }
+        }
+    });
+    
+    btnSendUrl.addEventListener('click', () => {
+        let url = urlInput.value.trim();
+        if (!url) {
+            updateStatus("⚠️ الرجاء إدخال رابط", 'error');
+            return;
+        }
+        if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+        sharedFrame.src = url;
+        sharedFrame.style.display = "block";
+        remoteVideo.style.display = "none";
+        updateStatus("📺 تم تحميل المحتوى", 'success');
+    });
+    
+    // ==================== 👥 وظائف الضيف (محسّنة جداً) ====================
+    btnJoin.addEventListener('click', async () => {
+        try {
+            await cleanupConnection();
+            isHost = false;
+            roomId = roomCodeInput.value.trim();
+            
+            if (!roomId || roomId.length !== 4) {
+                updateStatus("⚠️ الكود يجب أن يكون 4 أرقام", 'error');
+                return;
+            }
+            
+            updateStatus("🔍 جاري البحث عن الغرفة...", 'info');
+            
+            const roomSnapshot = await new Promise((resolve) => {
+                onValue(ref(db, `rooms/${roomId}`), resolve, { onlyOnce: true });
+            });
+            
+            if (!roomSnapshot.exists()) {
+                updateStatus("❌ الغرفة غير موجودة. تأكد من الكود.", 'error');
+                return;
+            }
+            
+            const guestsData = roomSnapshot.val().guests || {};
+            if (Object.keys(guestsData).length >= MAX_GUESTS) {
+                updateStatus(`❌ الغرفة مكتملة (الحد الأقصى ${MAX_GUESTS})`, 'error');
+                return;
+            }
+            
+            switchScreen(welcomeScreen, roomScreen);
+            displayRoomCode.innerText = roomId;
+            remoteVideo.style.display = "block";
+            sharedFrame.style.display = "none";
+            qualityBadge.style.display = 'block';
+            
+            const netType = await checkNetworkType();
+            const estimatedTime = isUsingMobileData ? '15-30' : '5-10';
+            updateStatus(`📡 جاري الاتصال بالبث... قد يستغرق ${estimatedTime} ثانية على ${netType.toUpperCase()}`, 'info');
+            
+            myGuestId = 'guest_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
+            const myGuestRef = ref(db, `rooms/${roomId}/guests/${myGuestId}`);
+            onDisconnect(myGuestRef).remove();
+            
+            await setupWebrtcAsGuest();
+            
+            // مراقبة الجودة كل 3 ثوانٍ
+            connectionMonitor = setInterval(async () => {
+                if (peerConnection) {
+                    await monitorConnectionQuality();
+                }
+            }, 3000);
+            
+        } catch (error) {
+            updateStatus(`❌ خطأ: ${error.message}`, 'error');
+        }
+    });
+    
+    async function setupWebrtcAsGuest() {
+        const iceConfig = getIceServers();
+        peerConnection = new RTCPeerConnection(iceConfig);
+        
+        // ==================== 🎬 استقبال الفيديو (مع تشغيل تلقائي) ====================
+        peerConnection.ontrack = (event) => {
+            if (event.streams && event.streams[0]) {
+                if (remoteVideo.srcObject) {
+                    const existingStream = remoteVideo.srcObject;
+                    event.streams[0].getTracks().forEach(track => {
+                        if (!existingStream.getTracks().find(t => t.id === track.id)) {
+                            existingStream.addTrack(track);
+                        }
+                    });
+                } else {
+                    remoteVideo.srcObject = event.streams[0];
+                }
+                
+                // تشغيل تلقائي مع كتم الصوت أولاً (لتجنب مشاكل المتصفح)
+                remoteVideo.muted = true;
+                remoteVideo.play().then(() => {
+                    // إلغاء كتم الصوت بعد التشغيل الناجح
+                    setTimeout(() => { remoteVideo.muted = false; }, 500);
+                }).catch(() => {});
+                
+                const hasVideo = remoteVideo.srcObject.getVideoTracks().length > 0;
+                const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
+                updateStatus(`✅ متصل! ${hasVideo ? '📹 فيديو' : ''} ${hasAudio ? '🔊 صوت' : ''}`, 'success');
+                reconnectAttempts = 0;
+            }
+        };
+        
+        peerConnection.onconnectionstatechange = () => {
+            const state = peerConnection.connectionState;
+            if (state === 'connected') {
+                updateStatus("✅ متصل بالبث بنجاح!", 'success');
+                reconnectAttempts = 0;
+            } else if (state === 'failed') {
+                updateStatus("❌ فشل الاتصال. جاري المحاولة...", 'error');
+            } else if (state === 'disconnected') {
+                updateStatus("⚠️ انقطع الاتصال مؤقتاً...", 'warning');
+            }
+        };
+        
+        peerConnection.oniceconnectionstatechange = () => {
+            const state = peerConnection.iceConnectionState;
+            if (state === 'checking') {
+                updateStatus("🔄 جاري الاتصال بالمضيف...", 'info');
+            } else if (state === 'connected') {
+                updateStatus("✅ تم إنشاء الاتصال!", 'success');
+            } else if (state === 'failed') {
+                updateStatus("⚠️ شبكة ضعيفة. جاري إعادة المحاولة...", 'error');
+            } else if (state === 'disconnected') {
+                updateStatus("⚠️ انقطع الاتصال...", 'warning');
+            }
+        };
+        
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                const candidateRef = ref(db, `rooms/${roomId}/guests/${myGuestId}/guestCandidates/${Date.now()}`);
+                set(candidateRef, event.candidate.toJSON());
+            }
+        };
+        
+        await set(ref(db, `rooms/${roomId}/guests/${myGuestId}/joinedAt`), Date.now());
+        
+        // الاستماع لعرض المضيف
+        onValue(ref(db, `rooms/${roomId}/guests/${myGuestId}/offer`), async (snapshot) => {
+            const offer = snapshot.val();
+            if (offer && peerConnection && peerConnection.signalingState === 'stable') {
+                try {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    await update(ref(db, `rooms/${roomId}/guests/${myGuestId}`), {
+                        answer: { type: answer.type, sdp: answer.sdp }
+                    });
+                } catch (error) {
+                    console.error("خطأ في إعداد الإجابة:", error);
+                }
+            }
+        });
+        
+        // الاستماع لمرشحات المضيف
+        onChildAdded(ref(db, `rooms/${roomId}/guests/${myGuestId}/hostCandidates`), (snapshot) => {
+            if (snapshot.exists() && peerConnection && peerConnection.remoteDescription) {
+                peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(console.error);
+            }
+        });
+    }
 
+    // ==================== 📊 مراقبة جودة الاتصال ====================
+    async function monitorConnectionQuality() {
+        if (!peerConnection) return;
+        
+        try {
+            const stats = await peerConnection.getStats();
+            let inboundVideo = null, inboundAudio = null, candidatePair = null;
+            
+            stats.forEach(stat => {
+                if (stat.type === 'inbound-rtp' && stat.kind === 'video') inboundVideo = stat;
+                if (stat.type === 'inbound-rtp' && stat.kind === 'audio') inboundAudio = stat;
+                if (stat.type === 'candidate-pair' && stat.selected) candidatePair = stat;
+            });
+            
+            // عرض الإحصائيات
+            if (inboundVideo || inboundAudio) {
+                let statsText = '';
+                if (inboundVideo) {
+                    const bitrate = Math.round((inboundVideo.bytesReceived * 8) / 1000);
+                    const fps = inboundVideo.framesPerSecond || 0;
+                    const width = inboundVideo.frameWidth || 0;
+                    const height = inboundVideo.frameHeight || 0;
+                    statsText += `📹 فيديو: ${bitrate}kbps | ${fps}fps | ${width}x${height}\n`;
+                }
+                if (inboundAudio) {
+                    const bitrate = Math.round((inboundAudio.bytesReceived * 8) / 1000);
+                    statsText += `🔊 صوت: ${bitrate}kbps`;
+                }
+                if (candidatePair) {
+                    const rtt = Math.round(candidatePair.currentRoundTripTime * 1000);
+                    statsText += `\n⏱️ تأخير: ${rtt}ms`;
+                    
+                    // كشف استخدام TURN relay
+                    const localType = candidatePair.localCandidateType;
+                    const remoteType = candidatePair.remoteCandidateType;
+                    if (localType === 'relay' || remoteType === 'relay') {
+                        statsText += ' | 🔄 عبر Relay';
+                    }
+                }
+                statsPanel.innerText = statsText;
+                statsPanel.classList.add('visible');
+            }
+            
+            // كشف فقدان الاتصال
+            if (!inboundVideo && !inboundAudio) {
+                updateStatus("⚠️ لا يوجد بيانات واردة - جاري إعادة المحاولة...", 'warning');
+                autoReconnect();
+            }
+            
+        } catch (e) {
+            console.error('خطأ في جلب الإحصائيات:', e);
+        }
+    }
 
-
-<div id="view-container">
-
-<iframe id="shared-frame" allow="autoplay; encrypted-media; fullscreen"></iframe>
-
-<video id="remote-video" autoplay playsinline controls></video>
-
-</div>
-
-</div>
-
-</div>
-
-
-
+    function switchScreen(hide, show) {
+        hide.classList.remove('active');
+        show.classList.add('active');
+    }
+    
+    // مراقبة نوع الشبكة باستمرار
+    setInterval(checkNetworkType, 3000);
+    checkNetworkType();
+    
+    console.log("✅ التطبيق جاهز - يدعم بيانات الجوال مع خوادم TURN متعددة");
+</script>
 </body>
-
 </html>
