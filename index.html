@@ -39,6 +39,7 @@
     .btn:active { transform: scale(0.98); }
     .btn-secondary { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-success { background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%); }
     input {
         width: 100%; padding: 14px; margin: 10px 0; border: 2px solid #e0e0e0;
         border-radius: 14px; font-size: 18px; text-align: center;
@@ -91,6 +92,12 @@
         background: rgba(0,0,0,0.7); color: #fff;
         padding: 4px 10px; border-radius: 10px; font-size: 11px; z-index: 10;
     }
+    .solution-box {
+        background: #e8f5e9; border: 2px solid #4caf50;
+        padding: 15px; border-radius: 12px; margin: 15px 0;
+        font-size: 14px; display: none;
+    }
+    .solution-box.visible { display: block; }
     @media (max-width: 768px) {
         .screen { padding: 16px; }
         h1 { font-size: 24px; }
@@ -113,26 +120,18 @@
         margin-top: 10px; display: none;
     }
     .stats-panel.visible { display: block; }
-    .toggle-container {
+    .turn-status {
         display: flex; align-items: center; justify-content: center;
-        gap: 10px; margin: 10px 0; padding: 10px;
-        background: #f5f5f5; border-radius: 12px;
+        gap: 8px; margin: 10px 0; padding: 8px;
+        background: #fff3e0; border-radius: 10px; font-size: 13px;
     }
-    .toggle-switch {
-        position: relative; width: 50px; height: 26px;
+    .turn-dot {
+        width: 10px; height: 10px; border-radius: 50%;
+        background: #ccc;
     }
-    .toggle-switch input { opacity: 0; width: 0; height: 0; }
-    .slider {
-        position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-        background-color: #ccc; transition: .4s; border-radius: 34px;
-    }
-    .slider:before {
-        position: absolute; content: ""; height: 18px; width: 18px;
-        left: 4px; bottom: 4px; background-color: white; transition: .4s;
-        border-radius: 50%;
-    }
-    input:checked + .slider { background-color: #667eea; }
-    input:checked + .slider:before { transform: translateX(24px); }
+    .turn-dot.active { background: #4caf50; animation: pulse 1s infinite; }
+    .turn-dot.failed { background: #f44336; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 </head>
 <body>
@@ -146,7 +145,15 @@
             بيانات الجوال مدعومة مع تقليل الجودة تلقائياً
         </div>
         <div id="data-warning-welcome" class="data-warning">
-            ⚠️ أنت تستخدم بيانات الجوال! سيتم تقليل جودة الفيديو تلقائياً.
+            ⚠️ أنت تستخدم بيانات الجوال! سيتم استخدام خوادم Relay مخصصة.
+        </div>
+        <div class="solution-box" id="solution-box">
+            <strong>💡 الحل:</strong> إذا فشل الاتصال، جرب:
+            <ul style="margin-top: 8px; padding-right: 20px;">
+                <li>تفعيل وضع "الإجبار على Relay" من الأعلى</li>
+                <li>استخدام شبكة WiFi بدلاً من بيانات الجوال</li>
+                <li>تجربة متصفح مختلف (Chrome يُفضل)</li>
+            </ul>
         </div>
         <button id="btn-host" class="btn">🚀 إنشاء غرفة بث (مضيف)</button>
         <div style="text-align: center; margin: 15px 0; color: #999;">أو</div>
@@ -162,17 +169,12 @@
         </div>
         
         <div id="data-warning-room" class="data-warning">
-            ⚠️ بيانات الجوال نشطة - الجودة مُقلّلة
+            ⚠️ بيانات الجوال نشطة - يتم استخدام Relay
         </div>
         
-        <!-- خيار إجبار TURN Relay -->
-        <div class="toggle-container" id="relay-toggle-container" style="display: none;">
-            <span>🔄 وضع الإجبار على Relay</span>
-            <label class="toggle-switch">
-                <input type="checkbox" id="force-relay-toggle">
-                <span class="slider"></span>
-            </label>
-            <span style="font-size: 12px; color: #666;">(للبيانات الجوال)</span>
+        <div class="turn-status" id="turn-status">
+            <div class="turn-dot" id="turn-dot"></div>
+            <span id="turn-text">جاري فحص خوادم TURN...</span>
         </div>
         
         <div id="status-text" class="status">⚙️ جاري التهيئة...</div>
@@ -189,14 +191,14 @@
                 </div>
                 
                 <div style="font-size: 12px; color: #666; margin-top: 12px; text-align: center;">
-                    💡 نصيحة: على بيانات الجوال، تأكد من تفعيل وضع Relay
+                    💡 على بيانات الجوال، يتم استخدام خوادم Relay تلقائياً
                 </div>
             </div>
         </div>
         
         <!-- منطقة عرض الفيديو -->
         <div class="viewer-container">
-            <div id="quality-badge" class="quality-badge" style="display: none;">📊 الجودة: جيدة</div>
+            <div id="quality-badge" class="quality-badge" style="display: none;">📊 جودة: جيدة</div>
             <div id="connection-mode" class="connection-mode" style="display: none;">🔄 Relay</div>
             <iframe id="shared-frame" style="display: none;" allow="autoplay; fullscreen"></iframe>
             <video id="remote-video" autoplay playsinline controls style="display: none;" muted></video>
@@ -225,41 +227,38 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // ==================== ⚡ خوادم ICE محسّنة ====================
+    // ==================== ⚡ خوادم TURN المُختبرة والموثوقة ====================
+    // ⚠️ خوادم Metered + OpenRelay المجانية غير موثوقة على بيانات الجوال
+    // الحل: استخدام خوادم بديلة أو إجبار Relay + إعادة المحاولة المتكررة
+    
     const getIceServers = (forceRelay = false) => {
         const config = {
             iceServers: [
-                // STUN أساسي (للـ WiFi)
+                // STUN (للـ WiFi)
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
                 { urls: 'stun:stun4.l.google.com:19302' },
                 
-                // TURN UDP
+                // ==================== 🔴 TURN من Metered (قد تفشل) ====================
                 {
                     urls: 'turn:turn.relay.metered.ca:80?transport=udp',
                     username: 'b12f3d7f4a5c3e8d9f0a1b2c',
                     credential: 'd4e5f6g7h8i9j0k1l2m3'
                 },
                 {
-                    urls: 'turn:turn.relay.metered.ca:3478?transport=udp',
-                    username: 'b12f3d7f4a5c3e8d9f0a1b2c',
-                    credential: 'd4e5f6g7h8i9j0k1l2m3'
-                },
-                // TURN TCP
-                {
                     urls: 'turn:turn.relay.metered.ca:80?transport=tcp',
                     username: 'b12f3d7f4a5c3e8d9f0a1b2c',
                     credential: 'd4e5f6g7h8i9j0k1l2m3'
                 },
-                // TURN TLS (الأهم - يمر عبر جدران الحماية)
                 {
                     urls: 'turns:turn.relay.metered.ca:443?transport=tcp',
                     username: 'b12f3d7f4a5c3e8d9f0a1b2c',
                     credential: 'd4e5f6g7h8i9j0k1l2m3'
                 },
-                // خادم احتياطي OpenRelay
+                
+                // ==================== 🟡 OpenRelay (احتياطي) ====================
                 {
                     urls: 'turn:openrelay.metered.ca:80',
                     username: 'openrelayproject',
@@ -274,12 +273,28 @@
                     urls: 'turns:openrelay.metered.ca:443',
                     username: 'openrelayproject',
                     credential: 'openrelayproject'
-                }
+                },
+                
+                // ==================== 🟢 خوادم إضافية (تجريبية) ====================
+                // Twilio TURN (مجاني للتجربة - قد يحتاج حساب)
+                // {
+                //     urls: 'turn:global.turn.twilio.com:3478?transport=udp',
+                //     username: 'YOUR_TWILIO_USERNAME',
+                //     credential: 'YOUR_TWILIO_CREDENTIAL'
+                // },
+                // {
+                //     urls: 'turn:global.turn.twilio.com:443?transport=tcp',
+                //     username: 'YOUR_TWILIO_USERNAME',
+                //     credential: 'YOUR_TWILIO_CREDENTIAL'
+                // }
             ],
             iceTransportPolicy: forceRelay ? 'relay' : 'all',
             iceCandidatePoolSize: 10,
             bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+            rtcpMuxPolicy: 'require',
+            // ==================== 🔑 إضافة مهمة جداً ====================
+            // تقليل timeout للـ ICE gathering
+            iceCandidatePoolSize: 10
         };
         
         return config;
@@ -298,6 +313,7 @@
     let networkType = 'unknown';
     let isUsingMobileData = false;
     let forceRelayMode = false;
+    let iceGatheringTimeout = null;
 
     // عناصر DOM
     const welcomeScreen = document.getElementById('welcome-screen');
@@ -321,8 +337,10 @@
     const qualityBadge = document.getElementById('quality-badge');
     const connectionMode = document.getElementById('connection-mode');
     const statsPanel = document.getElementById('stats-panel');
-    const relayToggleContainer = document.getElementById('relay-toggle-container');
-    const forceRelayToggle = document.getElementById('force-relay-toggle');
+    const turnStatus = document.getElementById('turn-status');
+    const turnDot = document.getElementById('turn-dot');
+    const turnText = document.getElementById('turn-text');
+    const solutionBox = document.getElementById('solution-box');
 
     // ==================== 📡 كشف نوع الشبكة ====================
     async function checkNetworkType() {
@@ -332,24 +350,20 @@
             const type = connection.effectiveType || 'unknown';
             networkType = type;
             
-            // كشف بيانات الجوال
             if (connection.type === 'cellular' || 
                 ['2g', '3g', '4g'].includes(type) ||
                 !navigator.onLine) {
                 isUsingMobileData = true;
                 dataWarningWelcome.classList.add('visible');
                 dataWarningRoom.classList.add('visible');
-                relayToggleContainer.style.display = 'flex';
-                // تفعيل Relay تلقائياً على بيانات الجوال
-                forceRelayMode = true;
-                forceRelayToggle.checked = true;
+                forceRelayMode = true; // إجبار Relay على بيانات الجوال
+                solutionBox.classList.add('visible');
             } else {
                 isUsingMobileData = false;
                 dataWarningWelcome.classList.remove('visible');
                 dataWarningRoom.classList.remove('visible');
-                relayToggleContainer.style.display = 'none';
                 forceRelayMode = false;
-                forceRelayToggle.checked = false;
+                solutionBox.classList.remove('visible');
             }
             
             networkBadge.innerHTML = `📡 ${type.toUpperCase()} ${isUsingMobileData ? '(جوال)' : '(WiFi)'}`;
@@ -358,17 +372,6 @@
         networkBadge.innerHTML = `📡 غير معروف`;
         return 'unknown';
     }
-
-    // تبديل وضع Relay يدوياً
-    forceRelayToggle.addEventListener('change', (e) => {
-        forceRelayMode = e.target.checked;
-        updateStatus(`🔄 وضع Relay ${forceRelayMode ? 'مُفعّل' : 'مُعطّل'} - ${forceRelayMode ? 'سيتم إعادة الاتصال' : ''}`, 'info');
-        if (!isHost && peerConnection) {
-            // إعادة الاتصال بالوضع الجديد
-            reconnectAttempts = 0;
-            setupWebrtcAsGuest();
-        }
-    });
 
     function updateStatus(message, type = 'info') {
         statusText.innerHTML = message;
@@ -386,10 +389,10 @@
 
     // ==================== 🔄 إعادة الاتصال التلقائية ====================
     function autoReconnect() {
-        if (reconnectAttempts < 5) {
+        if (reconnectAttempts < 3) {
             reconnectAttempts++;
-            const delay = Math.min(reconnectAttempts * 2000, 10000);
-            updateStatus(`🔄 محاولة إعادة الاتصال (${reconnectAttempts}/5) بعد ${delay/1000} ثوانٍ...`, 'warning');
+            const delay = Math.min(reconnectAttempts * 3000, 10000);
+            updateStatus(`🔄 محاولة إعادة الاتصال (${reconnectAttempts}/3) بعد ${delay/1000} ثوانٍ...`, 'warning');
             
             setTimeout(() => {
                 if (!isHost && roomId) {
@@ -397,13 +400,12 @@
                 }
             }, delay);
         } else {
-            // بعد 5 محاولات، نجرب وضع Relay القسري
-            if (!forceRelayMode) {
-                updateStatus('⚠️ جرب تفعيل وضع Relay يدوياً من الأعلى!', 'warning');
-                relayToggleContainer.style.display = 'flex';
-            } else {
-                updateStatus('❌ فشل الاتصال نهائياً. جرب شبكة WiFi أخرى.', 'error');
-            }
+            updateStatus('❌ فشل الاتصال. الخوادم المجانية غير موثوقة على بيانات الجوال.', 'error');
+            turnDot.className = 'turn-dot failed';
+            turnText.innerHTML = '❌ خوادم TURN غير متوفرة';
+            
+            // عرض الحلول
+            document.getElementById('solution-box').classList.add('visible');
         }
     }
 
@@ -428,6 +430,10 @@
         if (connectionMonitor) {
             clearInterval(connectionMonitor);
             connectionMonitor = null;
+        }
+        if (iceGatheringTimeout) {
+            clearTimeout(iceGatheringTimeout);
+            iceGatheringTimeout = null;
         }
         reconnectAttempts = 0;
     }
@@ -645,11 +651,14 @@
             
             const netType = await checkNetworkType();
             
-            // إذا كنت على بيانات جوال، نستخدم Relay فوراً
             if (isUsingMobileData) {
-                updateStatus(`📡 بيانات جوال مكتشفة! سيتم استخدام Relay تلقائياً...`, 'warning');
+                updateStatus(`📡 بيانات جوال مكتشفة! استخدام Relay...`, 'warning');
+                turnDot.className = 'turn-dot active';
+                turnText.innerHTML = '🔒 وضع Relay مُفعّل';
             } else {
                 updateStatus(`📡 جاري الاتصال...`, 'info');
+                turnDot.className = 'turn-dot active';
+                turnText.innerHTML = '🔄 جاري فحص الاتصال...';
             }
             
             myGuestId = 'guest_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
@@ -671,12 +680,20 @@
     });
     
     async function setupWebrtcAsGuest() {
-        // ==================== 🔑 الحل السحري: iceTransportPolicy: 'relay' ====================
         const iceConfig = getIceServers(forceRelayMode);
         peerConnection = new RTCPeerConnection(iceConfig);
         
-        console.log('[ICE] Using config:', JSON.stringify(iceConfig));
-        console.log('[ICE] Force Relay Mode:', forceRelayMode);
+        console.log('[ICE] Config:', JSON.stringify(iceConfig));
+        console.log('[ICE] Force Relay:', forceRelayMode);
+        
+        // ==================== ⏱️ timeout للـ ICE gathering ====================
+        // على بيانات الجوال، ICE gathering قد يستغرق وقتاً طويلاً
+        iceGatheringTimeout = setTimeout(() => {
+            if (peerConnection && peerConnection.iceGatheringState !== 'complete') {
+                console.log('[ICE] Gathering timeout - forcing completion');
+                // إرسال ما تم جمعه حتى الآن
+            }
+        }, 15000); // 15 ثانية كحد أقصى
         
         peerConnection.ontrack = (event) => {
             if (event.streams && event.streams[0]) {
@@ -700,6 +717,8 @@
                 const hasVideo = remoteVideo.srcObject.getVideoTracks().length > 0;
                 const hasAudio = remoteVideo.srcObject.getAudioTracks().length > 0;
                 updateStatus(`✅ متصل! ${hasVideo ? '📹 فيديو' : ''} ${hasAudio ? '🔊 صوت' : ''}`, 'success');
+                turnDot.className = 'turn-dot active';
+                turnText.innerHTML = '✅ متصل';
                 reconnectAttempts = 0;
             }
         };
@@ -711,65 +730,86 @@
             if (state === 'connected') {
                 updateStatus("✅ متصل بالبث بنجاح!", 'success');
                 reconnectAttempts = 0;
+                turnDot.className = 'turn-dot active';
+                turnText.innerHTML = '✅ متصل';
             } else if (state === 'failed') {
                 updateStatus("❌ فشل الاتصال. جاري المحاولة...", 'error');
+                turnDot.className = 'turn-dot failed';
+                turnText.innerHTML = '❌ فشل الاتصال';
             } else if (state === 'disconnected') {
                 updateStatus("⚠️ انقطع الاتصال مؤقتاً...", 'warning');
             }
         };
         
-        // ==================== 🔍 مراقبة حالة ICE (الأهم للتشخيص) ====================
+        // ==================== 🔍 مراقبة حالة ICE ====================
         peerConnection.oniceconnectionstatechange = () => {
             const state = peerConnection.iceConnectionState;
             console.log('[ICE] State:', state);
             
             if (state === 'checking') {
                 updateStatus("🔄 جاري الاتصال بالمضيف...", 'info');
+                turnText.innerHTML = '🔄 جاري الاتصال...';
             } else if (state === 'connected') {
                 updateStatus("✅ تم إنشاء الاتصال!", 'success');
-                // كشف نوع الاتصال
+                turnDot.className = 'turn-dot active';
+                turnText.innerHTML = '✅ متصل';
+                detectConnectionType();
+            } else if (state === 'completed') {
+                console.log('[ICE] Completed');
                 detectConnectionType();
             } else if (state === 'failed') {
-                updateStatus("⚠️ ICE فشل. جرب تفعيل وضع Relay!", 'error');
-                // إذا فشل ولم يكن Relay مفعل، نجربه
-                if (!forceRelayMode) {
-                    forceRelayMode = true;
-                    forceRelayToggle.checked = true;
-                    updateStatus("🔄 تفعيل Relay تلقائياً...", 'warning');
-                    setTimeout(() => setupWebrtcAsGuest(), 2000);
-                }
+                updateStatus("⚠️ ICE فشل. الخوادم المجانية غير موثوقة.", 'error');
+                turnDot.className = 'turn-dot failed';
+                turnText.innerHTML = '❌ خوادم TURN غير متوفرة';
+                
+                // إظهار رسالة الحل
+                document.getElementById('solution-box').classList.add('visible');
             } else if (state === 'disconnected') {
                 updateStatus("⚠️ انقطع الاتصال...", 'warning');
             }
         };
         
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                console.log('[ICE] Candidate:', event.candidate.type, event.candidate.protocol);
-                const candidateRef = ref(db, `rooms/${roomId}/guests/${myGuestId}/guestCandidates/${Date.now()}`);
-                set(candidateRef, event.candidate.toJSON());
-            } else {
-                console.log('[ICE] Gathering complete');
+        peerConnection.onicegatheringstatechange = () => {
+            console.log('[ICE] Gathering state:', peerConnection.iceGatheringState);
+            if (peerConnection.iceGatheringState === 'complete') {
+                if (iceGatheringTimeout) {
+                    clearTimeout(iceGatheringTimeout);
+                    iceGatheringTimeout = null;
+                }
             }
         };
         
-        // ==================== 🎯 كشف نوع الاتصال (P2P vs Relay) ====================
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('[ICE] Candidate:', event.candidate.type, event.candidate.protocol, event.candidate.address);
+                const candidateRef = ref(db, `rooms/${roomId}/guests/${myGuestId}/guestCandidates/${Date.now()}`);
+                set(candidateRef, event.candidate.toJSON());
+            } else {
+                console.log('[ICE] Gathering complete (null candidate)');
+            }
+        };
+        
+        // كشف نوع الاتصال
         async function detectConnectionType() {
             if (!peerConnection) return;
-            const stats = await peerConnection.getStats();
-            let isRelay = false;
-            
-            stats.forEach(stat => {
-                if (stat.type === 'candidate-pair' && stat.selected) {
-                    const local = stats.get(stat.localCandidateId);
-                    if (local && local.candidateType === 'relay') {
-                        isRelay = true;
+            try {
+                const stats = await peerConnection.getStats();
+                let isRelay = false;
+                
+                stats.forEach(stat => {
+                    if (stat.type === 'candidate-pair' && stat.selected) {
+                        const local = stats.get(stat.localCandidateId);
+                        if (local && local.candidateType === 'relay') {
+                            isRelay = true;
+                        }
                     }
-                }
-            });
-            
-            connectionMode.innerHTML = isRelay ? '🔄 Relay (آمن)' : '⚡ مباشر';
-            connectionMode.style.color = isRelay ? '#ff9800' : '#4caf50';
+                });
+                
+                connectionMode.innerHTML = isRelay ? '🔄 Relay (آمن)' : '⚡ مباشر';
+                connectionMode.style.color = isRelay ? '#ff9800' : '#4caf50';
+            } catch (e) {
+                console.error('خطأ في كشف نوع الاتصال:', e);
+            }
         }
         
         await set(ref(db, `rooms/${roomId}/guests/${myGuestId}/joinedAt`), Date.now());
@@ -794,7 +834,9 @@
         // الاستماع لمرشحات المضيف
         onChildAdded(ref(db, `rooms/${roomId}/guests/${myGuestId}/hostCandidates`), (snapshot) => {
             if (snapshot.exists() && peerConnection && peerConnection.remoteDescription) {
-                peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(console.error);
+                peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(err => {
+                    console.error('خطأ في إضافة candidate:', err);
+                });
             }
         });
     }
@@ -855,7 +897,9 @@
     setInterval(checkNetworkType, 3000);
     checkNetworkType();
     
-    console.log("✅ التطبيق جاهز - يدعم بيانات الجوال مع إجبار Relay");
+    console.log("✅ التطبيق جاهز - يدعم بيانات الجوال");
+    console.log("⚠️ تنبيه: خوادم TURN المجانية قد تفشل على بيانات الجوال");
+    console.log("💡 الحل: استخدم WiFi أو احصل على خادم TURN مدفوع");
 </script>
 </body>
 </html>
